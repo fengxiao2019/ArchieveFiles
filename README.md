@@ -1,11 +1,15 @@
-# RocksDB Archive Tool
+# Database Archive Tool
 
-一个用于备份和归档RocksDB数据库的Go工具，特别适用于被其他进程占用的数据库。
+一个用于备份和归档多种数据库的Go工具，支持RocksDB和SQLite数据库，特别适用于被其他进程占用的数据库。
 
 ## 功能特性
 
-- **只读模式访问**: 以只读模式打开RocksDB，不会影响正在运行的进程
-- **多种备份方式**: 支持三种不同的备份方法
+- **多数据库支持**: 支持RocksDB和SQLite数据库
+- **批量处理**: 可以扫描目录并批量处理多个数据库
+- **智能检测**: 自动检测数据库类型（RocksDB目录或SQLite文件）
+- **文件过滤**: 支持包含/排除文件模式过滤
+- **只读模式访问**: 以只读模式打开数据库，不会影响正在运行的进程
+- **多种备份方式**: 对于RocksDB支持三种不同的备份方法
   - `backup`: 使用RocksDB内置备份引擎（推荐）
   - `checkpoint`: 使用RocksDB checkpoint功能
   - `copy`: 手动遍历复制所有数据
@@ -43,37 +47,69 @@ go build -o rocksdb-archive
 ### 基本用法
 
 ```bash
-# 使用默认设置备份数据库
+# 备份单个RocksDB数据库
 ./rocksdb-archive -source /path/to/rocksdb
 
-# 指定备份路径
-./rocksdb-archive -source /path/to/rocksdb -backup /path/to/backup
+# 备份单个SQLite数据库
+./rocksdb-archive -source /path/to/database.db
 
-# 使用checkpoint方法
-./rocksdb-archive -source /path/to/rocksdb -method checkpoint
+# 批量处理目录中的所有数据库
+./rocksdb-archive -source /path/to/database/directory -batch=true
 
-# 不压缩备份
-./rocksdb-archive -source /path/to/rocksdb -compress=false
+# 自动检测目录（如果源是目录，会自动启用批量模式）
+./rocksdb-archive -source /path/to/database/directory
+
+# 使用文件过滤只处理特定类型的数据库
+./rocksdb-archive -source /path/to/directory -include="*.db,*.sqlite"
 ```
 
 ### 命令行参数
 
-- `-source`: 源RocksDB路径（必需）
+- `-source`: 源数据库路径或目录（必需）
 - `-backup`: 备份路径（默认：backup_timestamp）
 - `-archive`: 归档文件路径（默认：backup_path.tar.gz）
-- `-method`: 备份方法，可选值：backup, checkpoint, copy（默认：backup）
+- `-method`: RocksDB备份方法，可选值：backup, checkpoint, copy（默认：backup）
+- `-batch`: 强制启用批量模式处理目录（默认：自动检测）
+- `-include`: 包含文件模式，逗号分隔（例如："*.db,*.sqlite"）
+- `-exclude`: 排除文件模式，逗号分隔
 - `-compress`: 是否压缩备份（默认：true）
 - `-remove-backup`: 压缩后是否删除备份目录（默认：true）
 
 ### 示例
 
 ```bash
-# 完整的备份和归档流程
+# 单个RocksDB数据库完整备份流程
 ./rocksdb-archive \
   -source /var/lib/myapp/rocksdb \
   -backup /tmp/myapp-backup \
   -archive /backup/myapp-$(date +%Y%m%d).tar.gz \
   -method backup \
+  -compress=true \
+  -remove-backup=true
+
+# 批量处理目录中的所有数据库
+./rocksdb-archive \
+  -source /var/lib/databases \
+  -backup /tmp/batch-backup \
+  -archive /backup/all-databases-$(date +%Y%m%d).tar.gz \
+  -batch=true \
+  -compress=true \
+  -remove-backup=true
+
+# 只备份SQLite数据库
+./rocksdb-archive \
+  -source /var/lib/databases \
+  -backup /tmp/sqlite-backup \
+  -archive /backup/sqlite-$(date +%Y%m%d).tar.gz \
+  -include="*.db,*.sqlite,*.sqlite3" \
+  -compress=true \
+  -remove-backup=true
+
+# 排除某些文件
+./rocksdb-archive \
+  -source /var/lib/databases \
+  -backup /tmp/filtered-backup \
+  -exclude="*temp*,*cache*" \
   -compress=true \
   -remove-backup=true
 ```
