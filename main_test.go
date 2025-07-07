@@ -1808,3 +1808,156 @@ func TestGenerateDefaultConfigFile(t *testing.T) {
 		os.Remove(configPath)
 	})
 }
+
+// Test database lock detection functionality
+func TestDatabaseLockDetection(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create test databases
+	rocksDBPath := filepath.Join(tempDir, "testdb")
+	createTestRocksDB(t, rocksDBPath)
+
+	sqlitePath := filepath.Join(tempDir, "test.sqlite")
+	createTestSQLiteDB(t, sqlitePath)
+
+	logPath := filepath.Join(tempDir, "test.log")
+	createTestLogFile(t, logPath)
+
+	// Test RocksDB lock detection
+	t.Run("RocksDB Lock Detection", func(t *testing.T) {
+		lockInfo, err := checkDatabaseLock(rocksDBPath, DatabaseTypeRocksDB)
+		if err != nil {
+			t.Fatalf("Failed to check RocksDB lock: %v", err)
+		}
+
+		// For our test database, it should not be locked
+		if lockInfo.IsLocked {
+			t.Errorf("Expected RocksDB to not be locked, but it was reported as locked")
+		}
+	})
+
+	// Test SQLite lock detection
+	t.Run("SQLite Lock Detection", func(t *testing.T) {
+		lockInfo, err := checkDatabaseLock(sqlitePath, DatabaseTypeSQLite)
+		if err != nil {
+			t.Fatalf("Failed to check SQLite lock: %v", err)
+		}
+
+		// For our test database, it should not be locked
+		if lockInfo.IsLocked {
+			t.Errorf("Expected SQLite to not be locked, but it was reported as locked")
+		}
+	})
+
+	// Test log file lock detection
+	t.Run("Log File Lock Detection", func(t *testing.T) {
+		lockInfo, err := checkDatabaseLock(logPath, DatabaseTypeLogFile)
+		if err != nil {
+			t.Fatalf("Failed to check log file lock: %v", err)
+		}
+
+		// For our test log file, it should not be locked
+		if lockInfo.IsLocked {
+			t.Errorf("Expected log file to not be locked, but it was reported as locked")
+		}
+	})
+}
+
+// Test safe backup functionality
+func TestSafeBackupFunctionality(t *testing.T) {
+	tempDir := t.TempDir()
+	backupDir := filepath.Join(tempDir, "backup")
+
+	// Create test databases
+	rocksDBPath := filepath.Join(tempDir, "testdb")
+	createTestRocksDB(t, rocksDBPath)
+
+	sqlitePath := filepath.Join(tempDir, "test.sqlite")
+	createTestSQLiteDB(t, sqlitePath)
+
+	logPath := filepath.Join(tempDir, "test.log")
+	createTestLogFile(t, logPath)
+
+	progress := NewProgressTracker(false)
+
+	// Test safe backup of RocksDB
+	t.Run("Safe RocksDB Backup", func(t *testing.T) {
+		dbInfo := DatabaseInfo{
+			Path: rocksDBPath,
+			Type: DatabaseTypeRocksDB,
+			Name: "testdb",
+		}
+
+		backupPath := filepath.Join(backupDir, "rocksdb_backup")
+		err := safeBackupDatabase(dbInfo, backupPath, "checkpoint", progress)
+		if err != nil {
+			t.Fatalf("Safe RocksDB backup failed: %v", err)
+		}
+
+		// Verify backup exists
+		if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+			t.Errorf("RocksDB backup directory not created: %s", backupPath)
+		}
+
+		// Verify backup contains files
+		files, err := os.ReadDir(backupPath)
+		if err != nil {
+			t.Fatalf("Failed to read backup directory: %v", err)
+		}
+		if len(files) == 0 {
+			t.Errorf("RocksDB backup directory is empty")
+		}
+	})
+
+	// Test safe backup of SQLite
+	t.Run("Safe SQLite Backup", func(t *testing.T) {
+		dbInfo := DatabaseInfo{
+			Path: sqlitePath,
+			Type: DatabaseTypeSQLite,
+			Name: "test.sqlite",
+		}
+
+		backupPath := filepath.Join(backupDir, "sqlite_backup")
+		err := safeBackupDatabase(dbInfo, backupPath, "backup", progress)
+		if err != nil {
+			t.Fatalf("Safe SQLite backup failed: %v", err)
+		}
+
+		// Verify backup exists
+		if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+			t.Errorf("SQLite backup directory not created: %s", backupPath)
+		}
+
+		// Verify backup file exists
+		backupFile := filepath.Join(backupPath, filepath.Base(sqlitePath))
+		if _, err := os.Stat(backupFile); os.IsNotExist(err) {
+			t.Errorf("SQLite backup file not created: %s", backupFile)
+		}
+	})
+
+	// Test safe backup of log file
+	t.Run("Safe Log File Backup", func(t *testing.T) {
+		dbInfo := DatabaseInfo{
+			Path: logPath,
+			Type: DatabaseTypeLogFile,
+			Name: "test.log",
+		}
+
+		backupPath := filepath.Join(backupDir, "log_backup")
+		err := safeBackupDatabase(dbInfo, backupPath, "copy", progress)
+		if err != nil {
+			t.Fatalf("Safe log file backup failed: %v", err)
+		}
+
+		// Verify backup exists
+		if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+			t.Errorf("Log file backup directory not created: %s", backupPath)
+		}
+
+		// Verify backup file exists
+		backupFile := filepath.Join(backupPath, filepath.Base(logPath))
+		if _, err := os.Stat(backupFile); os.IsNotExist(err) {
+			t.Errorf("Log file backup not created: %s", backupFile)
+		}
+	})
+}
