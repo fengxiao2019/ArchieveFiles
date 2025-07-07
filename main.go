@@ -394,9 +394,9 @@ func databaseTypeString(dbType DatabaseType) string {
 // Note: Using copy method for all backup types since backup and checkpoint APIs
 // might not be available in this version of grocksdb
 
-// 手动遍历复制数据
+// manual copy data
 func copyDatabaseData(sourceDBPath, targetDBPath string) error {
-	// 打开源数据库（只读）
+	// open source database (read-only)
 	sourceOpts := grocksdb.NewDefaultOptions()
 	sourceOpts.SetCreateIfMissing(false)
 	defer sourceOpts.Destroy()
@@ -407,7 +407,7 @@ func copyDatabaseData(sourceDBPath, targetDBPath string) error {
 	}
 	defer sourceDB.Close()
 
-	// 创建目标数据库
+	// create target database
 	targetOpts := grocksdb.NewDefaultOptions()
 	targetOpts.SetCreateIfMissing(true)
 	defer targetOpts.Destroy()
@@ -418,14 +418,14 @@ func copyDatabaseData(sourceDBPath, targetDBPath string) error {
 	}
 	defer targetDB.Close()
 
-	// 创建迭代器
+	// create iterator
 	readOpts := grocksdb.NewDefaultReadOptions()
 	defer readOpts.Destroy()
 
 	iter := sourceDB.NewIterator(readOpts)
 	defer iter.Close()
 
-	// 创建写批次
+	// create write batch
 	writeBatch := grocksdb.NewWriteBatch()
 	defer writeBatch.Destroy()
 
@@ -435,7 +435,7 @@ func copyDatabaseData(sourceDBPath, targetDBPath string) error {
 	batchSize := 1000
 	count := 0
 
-	// 遍历所有数据
+	// iterate all data
 	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
 		key := iter.Key()
 		value := iter.Value()
@@ -443,7 +443,7 @@ func copyDatabaseData(sourceDBPath, targetDBPath string) error {
 		writeBatch.Put(key.Data(), value.Data())
 		count++
 
-		// 批量写入
+		// write batch
 		if count%batchSize == 0 {
 			err = targetDB.Write(writeOpts, writeBatch)
 			if err != nil {
@@ -458,7 +458,7 @@ func copyDatabaseData(sourceDBPath, targetDBPath string) error {
 		value.Free()
 	}
 
-	// 写入剩余数据
+	// write remaining data
 	if writeBatch.Count() > 0 {
 		err = targetDB.Write(writeOpts, writeBatch)
 		if err != nil {
@@ -469,48 +469,48 @@ func copyDatabaseData(sourceDBPath, targetDBPath string) error {
 	return iter.Err()
 }
 
-// 压缩目录为tar.gz
+// compress directory to tar.gz
 func compressDirectory(sourceDir, targetPath string) error {
-	// 创建目标文件
+	// create target file
 	file, err := os.Create(targetPath)
 	if err != nil {
 		return fmt.Errorf("failed to create archive file: %v", err)
 	}
 	defer file.Close()
 
-	// 创建gzip writer
+	// create gzip writer
 	gzipWriter := gzip.NewWriter(file)
 	defer gzipWriter.Close()
 
-	// 创建tar writer
+	// create tar writer
 	tarWriter := tar.NewWriter(gzipWriter)
 	defer tarWriter.Close()
 
-	// 遍历源目录
+	// iterate source directory
 	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// 创建tar header
+		// create tar header
 		header, err := tar.FileInfoHeader(info, info.Name())
 		if err != nil {
 			return err
 		}
 
-		// 设置相对路径
+		// set relative path
 		relPath, err := filepath.Rel(sourceDir, path)
 		if err != nil {
 			return err
 		}
 		header.Name = relPath
 
-		// 写入header
+		// write header
 		if err := tarWriter.WriteHeader(header); err != nil {
 			return err
 		}
 
-		// 如果是文件，写入内容
+		// if it's a file, write content
 		if !info.IsDir() {
 			file, err := os.Open(path)
 			if err != nil {
