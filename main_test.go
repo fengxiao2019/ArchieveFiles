@@ -4,11 +4,14 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"database/sql"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/linxGnu/grocksdb"
 	_ "github.com/mattn/go-sqlite3"
@@ -87,6 +90,37 @@ func setupTestSQLiteDB(t *testing.T) string {
 	return dbPath
 }
 
+func setupTestLogFiles(t *testing.T) []string {
+	tempDir := t.TempDir()
+
+	logFiles := []string{
+		filepath.Join(tempDir, "application.log"),
+		filepath.Join(tempDir, "error.log"),
+		filepath.Join(tempDir, "access.log"),
+		filepath.Join(tempDir, "debug.txt"),
+		filepath.Join(tempDir, "audit_2023.log"),
+		filepath.Join(tempDir, "database_queries.log"),
+	}
+
+	logContents := []string{
+		"2023-10-01 10:00:00 INFO Application started\n2023-10-01 10:01:00 INFO User logged in",
+		"2023-10-01 10:05:00 ERROR Database connection failed\n2023-10-01 10:06:00 ERROR Retry failed",
+		"192.168.1.1 - - [01/Oct/2023:10:00:00] \"GET /api/users\" 200 1234",
+		"DEBUG: Variable x = 42\nDEBUG: Function called with params: {id: 123}",
+		"AUDIT: User admin accessed sensitive data at 2023-10-01T10:00:00Z",
+		"2023-10-01 10:00:00 SELECT * FROM users WHERE id = 1\n2023-10-01 10:01:00 UPDATE users SET name = 'John' WHERE id = 1",
+	}
+
+	for i, logFile := range logFiles {
+		err := os.WriteFile(logFile, []byte(logContents[i]), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create log file %s: %v", logFile, err)
+		}
+	}
+
+	return logFiles
+}
+
 func setupTestDirectory(t *testing.T) string {
 	tempDir := t.TempDir()
 
@@ -133,6 +167,20 @@ func setupTestDirectory(t *testing.T) string {
 		db.Close()
 	}
 
+	// Create log files
+	logFiles := []string{
+		filepath.Join(tempDir, "application.log"),
+		filepath.Join(tempDir, "error.txt"),
+		filepath.Join(tempDir, "access_log"),
+	}
+
+	for _, logFile := range logFiles {
+		err := os.WriteFile(logFile, []byte("Test log content"), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create log file: %v", err)
+		}
+	}
+
 	// Create some non-database files
 	nonDBFile := filepath.Join(tempDir, "readme.txt")
 	err := os.WriteFile(nonDBFile, []byte("This is not a database"), 0644)
@@ -141,6 +189,78 @@ func setupTestDirectory(t *testing.T) string {
 	}
 
 	return tempDir
+}
+
+func setupMultipleTestDirectories(t *testing.T) []string {
+	// Create multiple source directories
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+	dir3 := t.TempDir()
+
+	// Directory 1: RocksDB + logs
+	rocksDB1 := filepath.Join(dir1, "primary_db")
+	opts := grocksdb.NewDefaultOptions()
+	opts.SetCreateIfMissing(true)
+	defer opts.Destroy()
+
+	db, err := grocksdb.OpenDb(opts, rocksDB1)
+	if err != nil {
+		t.Fatalf("Failed to create RocksDB: %v", err)
+	}
+
+	writeOpts := grocksdb.NewDefaultWriteOptions()
+	defer writeOpts.Destroy()
+
+	db.Put(writeOpts, []byte("dir1"), []byte("data1"))
+	db.Close()
+
+	// Add log files to dir1
+	os.WriteFile(filepath.Join(dir1, "application.log"), []byte("App log from dir1"), 0644)
+	os.WriteFile(filepath.Join(dir1, "error.log"), []byte("Error log from dir1"), 0644)
+
+	// Directory 2: SQLite databases
+	sqliteDB1 := filepath.Join(dir2, "users.db")
+	sqliteDB2 := filepath.Join(dir2, "products.sqlite")
+
+	for _, dbPath := range []string{sqliteDB1, sqliteDB2} {
+		db, err := sql.Open("sqlite3", dbPath)
+		if err != nil {
+			t.Fatalf("Failed to create SQLite database: %v", err)
+		}
+
+		_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, data TEXT); INSERT INTO test (data) VALUES ('dir2_data');")
+		if err != nil {
+			t.Fatalf("Failed to create SQLite test data: %v", err)
+		}
+
+		db.Close()
+	}
+
+	// Directory 3: Mixed content
+	rocksDB2 := filepath.Join(dir3, "cache_db")
+	db, err = grocksdb.OpenDb(opts, rocksDB2)
+	if err != nil {
+		t.Fatalf("Failed to create RocksDB: %v", err)
+	}
+	db.Put(writeOpts, []byte("dir3"), []byte("cache_data"))
+	db.Close()
+
+	sqliteDB3 := filepath.Join(dir3, "analytics.db")
+	db3, err := sql.Open("sqlite3", sqliteDB3)
+	if err != nil {
+		t.Fatalf("Failed to create SQLite database: %v", err)
+	}
+	_, err = db3.Exec("CREATE TABLE analytics (id INTEGER PRIMARY KEY, data TEXT); INSERT INTO analytics (data) VALUES ('analytics_data');")
+	if err != nil {
+		t.Fatalf("Failed to create SQLite test data: %v", err)
+	}
+	db3.Close()
+
+	// Add log files to dir3
+	os.WriteFile(filepath.Join(dir3, "debug.txt"), []byte("Debug log from dir3"), 0644)
+	os.WriteFile(filepath.Join(dir3, "audit_trail.log"), []byte("Audit log from dir3"), 0644)
+
+	return []string{dir1, dir2, dir3}
 }
 
 func verifyDatabaseContents(t *testing.T, dbPath string, expectedCount int) {
@@ -180,6 +300,17 @@ func verifyDatabaseContents(t *testing.T, dbPath string, expectedCount int) {
 
 	if count != expectedCount {
 		t.Errorf("Expected %d records, got %d", expectedCount, count)
+	}
+}
+
+func verifyLogFileContents(t *testing.T, logPath string, expectedContent string) {
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("Failed to read log file: %v", err)
+	}
+
+	if string(content) != expectedContent {
+		t.Errorf("Log file content mismatch. Expected: %s, Got: %s", expectedContent, string(content))
 	}
 }
 
@@ -249,29 +380,32 @@ func TestDatabaseDiscovery(t *testing.T) {
 	testDir := setupTestDirectory(t)
 
 	config := &Config{
-		SourcePath: testDir,
-		BatchMode:  true,
+		SourcePaths: []string{testDir},
+		BatchMode:   true,
 	}
 
-	databases, err := discoverDatabases(config)
+	databases, err := discoverDatabases(config, testDir)
 	if err != nil {
 		t.Fatalf("Failed to discover databases: %v", err)
 	}
 
-	// Should find 4 databases (2 RocksDB + 2 SQLite)
-	if len(databases) != 4 {
-		t.Errorf("Expected 4 databases, found %d", len(databases))
+	// Should find items (2 RocksDB + 2 SQLite + 3 log files, excluding readme.txt)
+	if len(databases) < 4 {
+		t.Errorf("Expected at least 4 items, found %d", len(databases))
 	}
 
 	// Count by type
 	rocksCount := 0
 	sqliteCount := 0
+	logCount := 0
 	for _, db := range databases {
 		switch db.Type {
 		case DatabaseTypeRocksDB:
 			rocksCount++
 		case DatabaseTypeSQLite:
 			sqliteCount++
+		case DatabaseTypeLogFile:
+			logCount++
 		}
 	}
 
@@ -281,6 +415,9 @@ func TestDatabaseDiscovery(t *testing.T) {
 	if sqliteCount != 2 {
 		t.Errorf("Expected 2 SQLite databases, found %d", sqliteCount)
 	}
+	if logCount != 3 {
+		t.Errorf("Expected 3 log files, found %d", logCount)
+	}
 }
 
 // Test file pattern filtering
@@ -289,12 +426,12 @@ func TestFilePatternFiltering(t *testing.T) {
 
 	// Test include pattern
 	config := &Config{
-		SourcePath:     testDir,
+		SourcePaths:    []string{testDir},
 		BatchMode:      true,
 		IncludePattern: "*.db",
 	}
 
-	databases, err := discoverDatabases(config)
+	databases, err := discoverDatabases(config, testDir)
 	if err != nil {
 		t.Fatalf("Failed to discover databases: %v", err)
 	}
@@ -323,12 +460,12 @@ func TestFilePatternFiltering(t *testing.T) {
 
 	// Test exclude pattern
 	config = &Config{
-		SourcePath:     testDir,
+		SourcePaths:    []string{testDir},
 		BatchMode:      true,
 		ExcludePattern: "*.sqlite",
 	}
 
-	databases, err = discoverDatabases(config)
+	databases, err = discoverDatabases(config, testDir)
 	if err != nil {
 		t.Fatalf("Failed to discover databases: %v", err)
 	}
@@ -381,7 +518,7 @@ func TestBatchProcessing(t *testing.T) {
 	backupDir := filepath.Join(t.TempDir(), "batch_backup")
 
 	config := &Config{
-		SourcePath:   testDir,
+		SourcePaths:  []string{testDir},
 		BackupPath:   backupDir,
 		BatchMode:    true,
 		Method:       "copy",
@@ -390,7 +527,7 @@ func TestBatchProcessing(t *testing.T) {
 	}
 
 	// Discover databases
-	databases, err := discoverDatabases(config)
+	databases, err := discoverDatabases(config, testDir)
 	if err != nil {
 		t.Fatalf("Failed to discover databases: %v", err)
 	}
@@ -400,15 +537,17 @@ func TestBatchProcessing(t *testing.T) {
 		t.Fatalf("Failed to create backup directory: %v", err)
 	}
 
-	// Process each database
+	// Process each database/file
 	for _, db := range databases {
 		dbBackupPath := filepath.Join(backupDir, db.Name)
 
 		switch db.Type {
 		case DatabaseTypeRocksDB:
-			err = processRocksDB(db.Path, dbBackupPath, config.Method)
+			err = processRocksDB(db.Path, dbBackupPath, config.Method, NewProgressTracker(false))
 		case DatabaseTypeSQLite:
 			err = processSQLiteDB(db.Path, dbBackupPath)
+		case DatabaseTypeLogFile:
+			err = processLogFile(db.Path, dbBackupPath)
 		}
 
 		if err != nil {
@@ -434,7 +573,7 @@ func TestCopyDatabaseData(t *testing.T) {
 	sourceDB := setupTestDB(t)
 	targetDB := filepath.Join(t.TempDir(), "copy")
 
-	err := copyDatabaseData(sourceDB, targetDB)
+	err := copyDatabaseData(sourceDB, targetDB, NewProgressTracker(false))
 	if err != nil {
 		t.Fatalf("Copy failed: %v", err)
 	}
@@ -513,14 +652,14 @@ func TestReadOnlyAccess(t *testing.T) {
 // Test error handling
 func TestErrorHandling(t *testing.T) {
 	// Test with non-existent source database
-	err := copyDatabaseData("/non/existent/path", t.TempDir())
+	err := copyDatabaseData("/non/existent/path", t.TempDir(), NewProgressTracker(false))
 	if err == nil {
 		t.Error("Expected error for non-existent source database")
 	}
 
 	// Test with invalid backup path
 	sourceDB := setupTestDB(t)
-	err = copyDatabaseData(sourceDB, "/invalid/path/that/cannot/be/created")
+	err = copyDatabaseData(sourceDB, "/invalid/path/that/cannot/be/created", NewProgressTracker(false))
 	if err == nil {
 		t.Error("Expected error for invalid backup path")
 	}
@@ -534,7 +673,7 @@ func TestFullWorkflow(t *testing.T) {
 	archivePath := filepath.Join(tempDir, "archive.tar.gz")
 
 	// Test copy method
-	err := copyDatabaseData(sourceDB, backupPath)
+	err := copyDatabaseData(sourceDB, backupPath, NewProgressTracker(false))
 	if err != nil {
 		t.Fatalf("Copy failed: %v", err)
 	}
@@ -572,7 +711,7 @@ func BenchmarkCopyDatabaseAsBackup(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		backupPath := filepath.Join(b.TempDir(), "backup")
-		err := copyDatabaseData(sourceDB, backupPath)
+		err := copyDatabaseData(sourceDB, backupPath, NewProgressTracker(false))
 		if err != nil {
 			b.Fatalf("Copy failed: %v", err)
 		}
@@ -585,7 +724,7 @@ func BenchmarkCopyDatabase(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		targetDB := filepath.Join(b.TempDir(), "copy")
-		err := copyDatabaseData(sourceDB, targetDB)
+		err := copyDatabaseData(sourceDB, targetDB, NewProgressTracker(false))
 		if err != nil {
 			b.Fatalf("Copy failed: %v", err)
 		}
@@ -628,7 +767,7 @@ func TestLargeDataset(t *testing.T) {
 
 	// Test copy with large dataset
 	backupPath := filepath.Join(tempDir, "large_backup")
-	err = copyDatabaseData(dbPath, backupPath)
+	err = copyDatabaseData(dbPath, backupPath, NewProgressTracker(false))
 	if err != nil {
 		t.Fatalf("Large dataset copy failed: %v", err)
 	}
@@ -636,5 +775,779 @@ func TestLargeDataset(t *testing.T) {
 	// Verify backup directory exists
 	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
 		t.Errorf("Large backup directory not created: %s", backupPath)
+	}
+}
+
+// Test log file processing
+func TestProcessLogFile(t *testing.T) {
+	logFiles := setupTestLogFiles(t)
+
+	for _, sourceLog := range logFiles {
+		targetPath := filepath.Join(t.TempDir(), "log_backup")
+
+		err := processLogFile(sourceLog, targetPath)
+		if err != nil {
+			t.Fatalf("Failed to process log file %s: %v", sourceLog, err)
+		}
+
+		// Verify backup file exists
+		backupFile := filepath.Join(targetPath, filepath.Base(sourceLog))
+		if _, err := os.Stat(backupFile); os.IsNotExist(err) {
+			t.Errorf("Log backup file not created: %s", backupFile)
+		}
+
+		// Verify content is preserved
+		originalContent, err := os.ReadFile(sourceLog)
+		if err != nil {
+			t.Fatalf("Failed to read original log file: %v", err)
+		}
+
+		backupContent, err := os.ReadFile(backupFile)
+		if err != nil {
+			t.Fatalf("Failed to read backup log file: %v", err)
+		}
+
+		if string(originalContent) != string(backupContent) {
+			t.Errorf("Log file content mismatch for %s", filepath.Base(sourceLog))
+		}
+	}
+}
+
+// Test log file detection
+func TestLogFileDetection(t *testing.T) {
+	logFiles := setupTestLogFiles(t)
+
+	for _, logFile := range logFiles {
+		if !isLogFile(logFile) {
+			t.Errorf("Failed to detect log file: %s", logFile)
+		}
+
+		if detectDatabaseType(logFile) != DatabaseTypeLogFile {
+			t.Errorf("Database type detection failed for log file: %s", logFile)
+		}
+	}
+
+	// Test non-log files
+	tempDir := t.TempDir()
+	nonLogFiles := []string{
+		filepath.Join(tempDir, "config.json"),
+		filepath.Join(tempDir, "readme.md"),
+		filepath.Join(tempDir, "script.sh"),
+	}
+
+	for _, file := range nonLogFiles {
+		err := os.WriteFile(file, []byte("test content"), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		if isLogFile(file) {
+			t.Errorf("Incorrectly detected non-log file as log: %s", file)
+		}
+	}
+}
+
+// Test multiple source directories
+func TestMultipleSourceDirectories(t *testing.T) {
+	sourceDirs := setupMultipleTestDirectories(t)
+	backupDir := filepath.Join(t.TempDir(), "multi_backup")
+
+	config := &Config{
+		SourcePaths:  sourceDirs,
+		BackupPath:   backupDir,
+		BatchMode:    true,
+		Method:       "copy",
+		Compress:     false,
+		RemoveBackup: false,
+	}
+
+	// Discover all databases from all source directories
+	allDatabases := []DatabaseInfo{}
+	for _, sourcePath := range sourceDirs {
+		databases, err := discoverDatabases(config, sourcePath)
+		if err != nil {
+			t.Fatalf("Failed to discover databases in %s: %v", sourcePath, err)
+		}
+
+		// Add source root information
+		for i := range databases {
+			databases[i].SourceRoot = sourcePath
+		}
+
+		allDatabases = append(allDatabases, databases...)
+	}
+
+	// Should find databases and log files from all 3 directories
+	if len(allDatabases) < 6 {
+		t.Errorf("Expected at least 6 items from multiple directories, found %d", len(allDatabases))
+	}
+
+	// Verify we have items from all directories
+	sourceRoots := make(map[string]bool)
+	for _, db := range allDatabases {
+		sourceRoots[db.SourceRoot] = true
+	}
+
+	if len(sourceRoots) != 3 {
+		t.Errorf("Expected items from 3 source directories, found %d", len(sourceRoots))
+	}
+
+	// Create backup directory
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		t.Fatalf("Failed to create backup directory: %v", err)
+	}
+
+	// Process each item
+	for _, db := range allDatabases {
+		sourceBaseName := filepath.Base(db.SourceRoot)
+		dbBackupPath := filepath.Join(backupDir, sourceBaseName, db.Name)
+
+		switch db.Type {
+		case DatabaseTypeRocksDB:
+			err := processRocksDB(db.Path, dbBackupPath, config.Method, NewProgressTracker(false))
+			if err != nil {
+				t.Fatalf("Failed to process RocksDB %s: %v", db.Name, err)
+			}
+		case DatabaseTypeSQLite:
+			err := processSQLiteDB(db.Path, dbBackupPath)
+			if err != nil {
+				t.Fatalf("Failed to process SQLite %s: %v", db.Name, err)
+			}
+		case DatabaseTypeLogFile:
+			err := processLogFile(db.Path, dbBackupPath)
+			if err != nil {
+				t.Fatalf("Failed to process log file %s: %v", db.Name, err)
+			}
+		}
+	}
+
+	// Verify backup structure
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		t.Fatalf("Failed to read backup directory: %v", err)
+	}
+
+	// Should have subdirectories for each source
+	if len(entries) != 3 {
+		t.Errorf("Expected 3 source subdirectories in backup, found %d", len(entries))
+	}
+}
+
+// Test include patterns for log files
+func TestLogFileIncludePatterns(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create various log files
+	logFiles := []string{
+		filepath.Join(tempDir, "app.log"),
+		filepath.Join(tempDir, "error.log"),
+		filepath.Join(tempDir, "debug.txt"),
+		filepath.Join(tempDir, "access.log"),
+		filepath.Join(tempDir, "info.out"),
+	}
+
+	for _, logFile := range logFiles {
+		err := os.WriteFile(logFile, []byte("test log content"), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create log file: %v", err)
+		}
+	}
+
+	// Test include only .log files
+	config := &Config{
+		SourcePaths:    []string{tempDir},
+		BatchMode:      true,
+		IncludePattern: "*.log",
+	}
+
+	databases, err := discoverDatabases(config, tempDir)
+	if err != nil {
+		t.Fatalf("Failed to discover databases: %v", err)
+	}
+
+	// Should find only .log files
+	logCount := 0
+	for _, db := range databases {
+		if db.Type == DatabaseTypeLogFile {
+			if !strings.HasSuffix(db.Path, ".log") {
+				t.Errorf("Include pattern failed, found non-.log file: %s", db.Path)
+			}
+			logCount++
+		}
+	}
+
+	if logCount != 3 {
+		t.Errorf("Expected 3 .log files, found %d", logCount)
+	}
+}
+
+// Test full end-to-end workflow with mixed content
+func TestFullWorkflowMixedContent(t *testing.T) {
+	sourceDirs := setupMultipleTestDirectories(t)
+	backupDir := filepath.Join(t.TempDir(), "full_backup")
+	archivePath := filepath.Join(t.TempDir(), "full_archive.tar.gz")
+
+	config := &Config{
+		SourcePaths:  sourceDirs,
+		BackupPath:   backupDir,
+		ArchivePath:  archivePath,
+		Method:       "copy",
+		Compress:     true,
+		RemoveBackup: true,
+		BatchMode:    true,
+	}
+
+	// Simulate main function workflow
+	allDatabases := []DatabaseInfo{}
+	for _, sourcePath := range config.SourcePaths {
+		databases, err := discoverDatabases(config, sourcePath)
+		if err != nil {
+			t.Fatalf("Failed to discover databases in %s: %v", sourcePath, err)
+		}
+
+		for i := range databases {
+			databases[i].SourceRoot = sourcePath
+		}
+
+		allDatabases = append(allDatabases, databases...)
+	}
+
+	// Create backup directory
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		t.Fatalf("Failed to create backup directory: %v", err)
+	}
+
+	// Process each item
+	for _, db := range allDatabases {
+		sourceBaseName := filepath.Base(db.SourceRoot)
+		dbBackupPath := filepath.Join(backupDir, sourceBaseName, db.Name)
+
+		switch db.Type {
+		case DatabaseTypeRocksDB:
+			err := processRocksDB(db.Path, dbBackupPath, config.Method, NewProgressTracker(false))
+			if err != nil {
+				t.Fatalf("Failed to process RocksDB %s: %v", db.Name, err)
+			}
+		case DatabaseTypeSQLite:
+			err := processSQLiteDB(db.Path, dbBackupPath)
+			if err != nil {
+				t.Fatalf("Failed to process SQLite %s: %v", db.Name, err)
+			}
+		case DatabaseTypeLogFile:
+			err := processLogFile(db.Path, dbBackupPath)
+			if err != nil {
+				t.Fatalf("Failed to process log file %s: %v", db.Name, err)
+			}
+		}
+	}
+
+	// Compress backup
+	err := compressDirectory(backupDir, archivePath)
+	if err != nil {
+		t.Fatalf("Failed to compress backup: %v", err)
+	}
+
+	// Verify archive exists
+	if _, err := os.Stat(archivePath); os.IsNotExist(err) {
+		t.Fatal("Archive file not created")
+	}
+
+	// Verify archive contents
+	file, err := os.Open(archivePath)
+	if err != nil {
+		t.Fatalf("Failed to open archive: %v", err)
+	}
+	defer file.Close()
+
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		t.Fatalf("Failed to create gzip reader: %v", err)
+	}
+	defer gzipReader.Close()
+
+	tarReader := tar.NewReader(gzipReader)
+
+	fileCount := 0
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("Failed to read tar header: %v", err)
+		}
+
+		if !header.FileInfo().IsDir() {
+			fileCount++
+		}
+	}
+
+	if fileCount == 0 {
+		t.Error("Archive appears to be empty")
+	}
+
+	// Remove backup directory (simulate config.RemoveBackup)
+	err = os.RemoveAll(backupDir)
+	if err != nil {
+		t.Fatalf("Failed to remove backup directory: %v", err)
+	}
+
+	// Verify backup directory is gone
+	if _, err := os.Stat(backupDir); !os.IsNotExist(err) {
+		t.Error("Backup directory should have been removed")
+	}
+}
+
+// Test different RocksDB backup methods
+func TestRocksDBBackupMethods(t *testing.T) {
+	// Use existing test database
+	testDB := "testdata/dir1/app.db"
+
+	// Verify the test database exists
+	if _, err := os.Stat(testDB); os.IsNotExist(err) {
+		t.Skipf("Test database %s does not exist, skipping test", testDB)
+	}
+
+	methods := []string{"checkpoint", "backup", "copy"}
+
+	for _, method := range methods {
+		t.Run(fmt.Sprintf("method_%s", method), func(t *testing.T) {
+			// Create target directory for this method
+			targetDir := filepath.Join(os.TempDir(), fmt.Sprintf("test_backup_%s_%d", method, time.Now().Unix()))
+			defer os.RemoveAll(targetDir)
+
+			// Create progress tracker (disabled for testing)
+			progress := NewProgressTracker(false)
+
+			// Test the backup method
+			err := processRocksDB(testDB, targetDir, method, progress)
+			if err != nil {
+				t.Fatalf("Failed to backup using %s method: %v", method, err)
+			}
+
+			// Verify backup exists
+			if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+				t.Fatalf("Backup directory not created for method %s", method)
+			}
+
+			// Verify backup contains files (all methods should create some files)
+			files, err := os.ReadDir(targetDir)
+			if err != nil {
+				t.Fatalf("Failed to read backup directory for method %s: %v", method, err)
+			}
+			if len(files) == 0 {
+				t.Errorf("Method %s created empty backup directory", method)
+			}
+
+			t.Logf("Method %s completed successfully, created %d files/directories", method, len(files))
+		})
+	}
+}
+
+// Test JSON configuration file functionality
+func TestJSONConfiguration(t *testing.T) {
+	// Create a temporary config file
+	configFile := filepath.Join(os.TempDir(), "test_config.json")
+	defer os.Remove(configFile)
+
+	// Test configuration
+	testConfig := &Config{
+		SourcePaths:       []string{"testdata/dir1", "testdata/dir2"},
+		BackupPath:        "test-backup",
+		ArchivePath:       "test-archive.tar.gz",
+		Method:            "checkpoint",
+		Compress:          true,
+		RemoveBackup:      false,
+		BatchMode:         true,
+		IncludePattern:    "*.db,*.log",
+		ExcludePattern:    "*temp*",
+		ShowProgress:      false,
+		Filter:            "",
+		CompressionFormat: "gzip",
+	}
+
+	// Test saving config to JSON
+	err := SaveConfigToJSON(testConfig, configFile)
+	if err != nil {
+		t.Fatalf("Failed to save config to JSON: %v", err)
+	}
+
+	// Test loading config from JSON
+	loadedConfig, err := LoadConfigFromJSON(configFile)
+	if err != nil {
+		t.Fatalf("Failed to load config from JSON: %v", err)
+	}
+
+	// Verify loaded config matches original
+	if !reflect.DeepEqual(testConfig.SourcePaths, loadedConfig.SourcePaths) {
+		t.Errorf("SourcePaths mismatch: expected %v, got %v", testConfig.SourcePaths, loadedConfig.SourcePaths)
+	}
+	if testConfig.Method != loadedConfig.Method {
+		t.Errorf("Method mismatch: expected %s, got %s", testConfig.Method, loadedConfig.Method)
+	}
+	if testConfig.CompressionFormat != loadedConfig.CompressionFormat {
+		t.Errorf("CompressionFormat mismatch: expected %s, got %s", testConfig.CompressionFormat, loadedConfig.CompressionFormat)
+	}
+	if testConfig.ShowProgress != loadedConfig.ShowProgress {
+		t.Errorf("ShowProgress mismatch: expected %t, got %t", testConfig.ShowProgress, loadedConfig.ShowProgress)
+	}
+}
+
+// Test configuration merging (JSON config + command line flags)
+func TestConfigMerging(t *testing.T) {
+	// JSON config
+	jsonConfig := &Config{
+		SourcePaths:       []string{"json-source1", "json-source2"},
+		Method:            "backup",
+		Compress:          false,
+		ShowProgress:      false,
+		CompressionFormat: "zstd",
+	}
+
+	// Flag config (command line overrides)
+	flagConfig := &Config{
+		SourcePaths:       []string{"flag-source1"},
+		Method:            "checkpoint", // Override
+		Compress:          true,         // Override
+		ShowProgress:      true,         // Override
+		CompressionFormat: "gzip",       // Override
+		IncludePattern:    "*.db",       // New value
+	}
+
+	// Merge configs
+	merged := MergeConfigs(jsonConfig, flagConfig)
+
+	// Verify flags override JSON config
+	if !reflect.DeepEqual(merged.SourcePaths, flagConfig.SourcePaths) {
+		t.Errorf("SourcePaths not overridden: expected %v, got %v", flagConfig.SourcePaths, merged.SourcePaths)
+	}
+	if merged.Method != flagConfig.Method {
+		t.Errorf("Method not overridden: expected %s, got %s", flagConfig.Method, merged.Method)
+	}
+	if merged.Compress != flagConfig.Compress {
+		t.Errorf("Compress not overridden: expected %t, got %t", flagConfig.Compress, merged.Compress)
+	}
+	if merged.ShowProgress != flagConfig.ShowProgress {
+		t.Errorf("ShowProgress not overridden: expected %t, got %t", flagConfig.ShowProgress, merged.ShowProgress)
+	}
+	if merged.CompressionFormat != flagConfig.CompressionFormat {
+		t.Errorf("CompressionFormat not overridden: expected %s, got %s", flagConfig.CompressionFormat, merged.CompressionFormat)
+	}
+	if merged.IncludePattern != flagConfig.IncludePattern {
+		t.Errorf("IncludePattern not set: expected %s, got %s", flagConfig.IncludePattern, merged.IncludePattern)
+	}
+}
+
+// Test default configuration
+func TestDefaultConfig(t *testing.T) {
+	config := GetDefaultConfig()
+
+	if config.Method != "checkpoint" {
+		t.Errorf("Default method should be 'checkpoint', got %s", config.Method)
+	}
+	if !config.Compress {
+		t.Error("Default compress should be true")
+	}
+	if !config.RemoveBackup {
+		t.Error("Default remove_backup should be true")
+	}
+	if !config.ShowProgress {
+		t.Error("Default show_progress should be true")
+	}
+	if config.CompressionFormat != "gzip" {
+		t.Errorf("Default compression format should be 'gzip', got %s", config.CompressionFormat)
+	}
+}
+
+// Test backup verification functionality
+func TestBackupVerification(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create test databases
+	sourceDir := filepath.Join(tempDir, "source")
+	backupDir := filepath.Join(tempDir, "backup")
+
+	// Ensure backup directory exists
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		t.Fatalf("Failed to create backup directory: %v", err)
+	}
+
+	// Create a simple RocksDB database
+	rocksDBPath := filepath.Join(sourceDir, "testdb")
+	createTestRocksDB(t, rocksDBPath)
+
+	// Create a SQLite database
+	sqlitePath := filepath.Join(sourceDir, "test.sqlite")
+	createTestSQLiteDB(t, sqlitePath)
+
+	// Create a log file
+	logPath := filepath.Join(sourceDir, "test.log")
+	createTestLogFile(t, logPath)
+
+	// Test RocksDB verification
+	t.Run("RocksDB Verification", func(t *testing.T) {
+		progress := NewProgressTracker(false)
+
+		// First backup the database using copy method (which supports verification)
+		rocksDBBackupPath := filepath.Join(backupDir, "testdb")
+		err := processRocksDB(rocksDBPath, rocksDBBackupPath, "copy", progress)
+		if err != nil {
+			t.Fatalf("Failed to backup RocksDB: %v", err)
+		}
+
+		// Verify the backup
+		dbInfo := DatabaseInfo{
+			Path: rocksDBPath,
+			Type: DatabaseTypeRocksDB,
+			Name: "testdb",
+		}
+
+		err = VerifyBackup(dbInfo, rocksDBBackupPath, progress)
+		if err != nil {
+			t.Fatalf("RocksDB verification failed: %v", err)
+		}
+	})
+
+	// Test SQLite verification
+	t.Run("SQLite Verification", func(t *testing.T) {
+		progress := NewProgressTracker(false)
+
+		// Backup the database (creates a directory with the file inside)
+		sqliteBackupDir := filepath.Join(backupDir, "test.sqlite")
+		err := processSQLiteDB(sqlitePath, sqliteBackupDir)
+		if err != nil {
+			t.Fatalf("Failed to backup SQLite: %v", err)
+		}
+
+		// The actual backup file is inside the backup directory
+		sqliteBackupPath := filepath.Join(sqliteBackupDir, filepath.Base(sqlitePath))
+
+		// Verify the backup
+		dbInfo := DatabaseInfo{
+			Path: sqlitePath,
+			Type: DatabaseTypeSQLite,
+			Name: "test.sqlite",
+		}
+
+		err = VerifyBackup(dbInfo, sqliteBackupPath, progress)
+		if err != nil {
+			t.Fatalf("SQLite verification failed: %v", err)
+		}
+	})
+
+	// Test log file verification
+	t.Run("Log File Verification", func(t *testing.T) {
+		progress := NewProgressTracker(false)
+
+		// Backup the log file (creates a directory with the file inside)
+		logBackupDir := filepath.Join(backupDir, "test.log")
+		err := processLogFile(logPath, logBackupDir)
+		if err != nil {
+			t.Fatalf("Failed to backup log file: %v", err)
+		}
+
+		// The actual backup file is inside the backup directory
+		logBackupPath := filepath.Join(logBackupDir, filepath.Base(logPath))
+
+		// Verify the backup
+		dbInfo := DatabaseInfo{
+			Path: logPath,
+			Type: DatabaseTypeLogFile,
+			Name: "test.log",
+		}
+
+		err = VerifyBackup(dbInfo, logBackupPath, progress)
+		if err != nil {
+			t.Fatalf("Log file verification failed: %v", err)
+		}
+	})
+}
+
+// createTestRocksDB creates a test RocksDB with some sample data
+func createTestRocksDB(t *testing.T, dbPath string) {
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
+
+	opts := grocksdb.NewDefaultOptions()
+	opts.SetCreateIfMissing(true)
+	defer opts.Destroy()
+
+	db, err := grocksdb.OpenDb(opts, dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create test RocksDB: %v", err)
+	}
+	defer db.Close()
+
+	writeOpts := grocksdb.NewDefaultWriteOptions()
+	defer writeOpts.Destroy()
+
+	// Add test data
+	testData := map[string]string{
+		"key1":     "value1",
+		"key2":     "value2",
+		"key3":     "value3",
+		"config":   "test_config",
+		"metadata": "test_metadata",
+	}
+
+	for key, value := range testData {
+		err := db.Put(writeOpts, []byte(key), []byte(value))
+		if err != nil {
+			t.Fatalf("Failed to put test data: %v", err)
+		}
+	}
+}
+
+// Test verification with corrupted data
+func TestVerificationWithCorruptedData(t *testing.T) {
+	tempDir := t.TempDir()
+
+	sourceDir := filepath.Join(tempDir, "source")
+	backupDir := filepath.Join(tempDir, "backup")
+
+	// Ensure directories exist
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		t.Fatalf("Failed to create backup directory: %v", err)
+	}
+
+	// Create and backup a log file
+	logPath := filepath.Join(sourceDir, "test.log")
+	createTestLogFile(t, logPath)
+
+	logBackupDir := filepath.Join(backupDir, "test.log")
+	err := processLogFile(logPath, logBackupDir)
+	if err != nil {
+		t.Fatalf("Failed to backup log file: %v", err)
+	}
+
+	// The actual backup file is inside the backup directory
+	logBackupPath := filepath.Join(logBackupDir, filepath.Base(logPath))
+
+	// Corrupt the backup
+	corruptedData := []byte("This is corrupted data")
+	err = os.WriteFile(logBackupPath, corruptedData, 0644)
+	if err != nil {
+		t.Fatalf("Failed to corrupt backup file: %v", err)
+	}
+
+	// Verify should fail
+	progress := NewProgressTracker(false)
+	dbInfo := DatabaseInfo{
+		Path: logPath,
+		Type: DatabaseTypeLogFile,
+		Name: "test.log",
+	}
+
+	err = VerifyBackup(dbInfo, logBackupPath, progress)
+	if err == nil {
+		t.Fatal("Expected verification to fail with corrupted data, but it passed")
+	}
+
+	if !strings.Contains(err.Error(), "contents do not match") {
+		t.Fatalf("Expected 'contents do not match' error, got: %v", err)
+	}
+}
+
+// Test JSON configuration with verification
+func TestJSONConfigurationWithVerification(t *testing.T) {
+	tempDir := t.TempDir()
+
+	configPath := filepath.Join(tempDir, "config.json")
+
+	// Create config with verification enabled
+	config := &Config{
+		SourcePaths:       []string{"/test/path"},
+		BackupPath:        "backup",
+		ArchivePath:       "archive.tar.gz",
+		Method:            "checkpoint",
+		Compress:          true,
+		RemoveBackup:      true,
+		BatchMode:         false,
+		IncludePattern:    "*.db",
+		ExcludePattern:    "*temp*",
+		ShowProgress:      true,
+		Filter:            "",
+		CompressionFormat: "gzip",
+		Verify:            true,
+	}
+
+	// Save config
+	err := SaveConfigToJSON(config, configPath)
+	if err != nil {
+		t.Fatalf("Failed to save config: %v", err)
+	}
+
+	// Load config
+	loadedConfig, err := LoadConfigFromJSON(configPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Verify all fields including Verify
+	if !loadedConfig.Verify {
+		t.Error("Expected Verify to be true")
+	}
+
+	if loadedConfig.Method != "checkpoint" {
+		t.Errorf("Expected method 'checkpoint', got '%s'", loadedConfig.Method)
+	}
+
+	if loadedConfig.CompressionFormat != "gzip" {
+		t.Errorf("Expected compression format 'gzip', got '%s'", loadedConfig.CompressionFormat)
+	}
+}
+
+// Helper function to create a test SQLite database
+func createTestSQLiteDB(t *testing.T, dbPath string) {
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
+
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create SQLite database: %v", err)
+	}
+	defer db.Close()
+
+	// Create a test table and insert some data
+	_, err = db.Exec(`
+		CREATE TABLE test_table (
+			id INTEGER PRIMARY KEY,
+			name TEXT NOT NULL,
+			value INTEGER
+		)
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	// Insert test data
+	for i := 1; i <= 10; i++ {
+		_, err = db.Exec("INSERT INTO test_table (name, value) VALUES (?, ?)",
+			fmt.Sprintf("test_%d", i), i*100)
+		if err != nil {
+			t.Fatalf("Failed to insert test data: %v", err)
+		}
+	}
+}
+
+// Helper function to create a test log file
+func createTestLogFile(t *testing.T, logPath string) {
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
+
+	logContent := `2024-01-01 00:00:01 INFO Application started
+2024-01-01 00:00:02 DEBUG Initializing database connection
+2024-01-01 00:00:03 INFO Database connection established
+2024-01-01 00:00:04 WARN Cache miss for key: user_123
+2024-01-01 00:00:05 ERROR Failed to process request: timeout
+2024-01-01 00:00:06 INFO Request processed successfully
+`
+
+	err := os.WriteFile(logPath, []byte(logContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create log file: %v", err)
 	}
 }

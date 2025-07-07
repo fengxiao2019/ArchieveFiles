@@ -1,0 +1,17 @@
+{
+  "source_paths": [
+    "testdata/dir1",
+    "testdata/dir2"
+  ],
+  "backup_path": "demo-backup",
+  "archive_path": "demo-final-archive.tar.zst",
+  "method": "checkpoint",
+  "compress": true,
+  "remove_backup": true,
+  "batch_mode": true,
+  "include_pattern": "*.db,*.sqlite,*.log",
+  "exclude_pattern": "*temp*,*cache*",
+  "show_progress": true,
+  "filter": "",
+  "compression_format": "zstd"
+}
