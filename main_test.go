@@ -1551,3 +1551,240 @@ func createTestLogFile(t *testing.T, logPath string) {
 		t.Fatalf("Failed to create log file: %v", err)
 	}
 }
+
+// Test default configuration file discovery
+func TestDefaultConfigDiscovery(t *testing.T) {
+	tempDir := t.TempDir()
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+
+	// Change to temp directory for testing
+	os.Chdir(tempDir)
+
+	t.Run("No Default Config Found", func(t *testing.T) {
+		configPath := FindDefaultConfig()
+		if configPath != "" {
+			t.Errorf("Expected no config found, but got: %s", configPath)
+		}
+	})
+
+	t.Run("Find archiveFiles.conf in Current Directory", func(t *testing.T) {
+		// Create a config file in current directory
+		testConfig := &Config{
+			SourcePaths: []string{"/test/path"},
+			Method:      "checkpoint",
+			Verify:      true,
+		}
+
+		configPath := "archiveFiles.conf"
+		err := SaveConfigToJSON(testConfig, configPath)
+		if err != nil {
+			t.Fatalf("Failed to create test config: %v", err)
+		}
+
+		foundPath := FindDefaultConfig()
+		expectedPath := filepath.Join(tempDir, "archiveFiles.conf")
+		if foundPath != expectedPath {
+			t.Errorf("Expected config path '%s', got '%s'", expectedPath, foundPath)
+		}
+
+		// Verify the config can be loaded
+		loadedConfig, err := LoadConfigFromJSON(foundPath)
+		if err != nil {
+			t.Fatalf("Failed to load found config: %v", err)
+		}
+
+		if !loadedConfig.Verify {
+			t.Error("Expected Verify to be true in loaded config")
+		}
+
+		os.Remove(configPath)
+	})
+
+	t.Run("Find Config in config/ Subdirectory", func(t *testing.T) {
+		// Create config subdirectory
+		configDir := filepath.Join(tempDir, "config")
+		err := os.MkdirAll(configDir, 0755)
+		if err != nil {
+			t.Fatalf("Failed to create config directory: %v", err)
+		}
+
+		// Create config file in subdirectory
+		testConfig := &Config{
+			SourcePaths:       []string{"/test/path"},
+			Method:            "backup",
+			CompressionFormat: "zstd",
+		}
+
+		configPath := filepath.Join(configDir, "archiveFiles.json")
+		err = SaveConfigToJSON(testConfig, configPath)
+		if err != nil {
+			t.Fatalf("Failed to create test config: %v", err)
+		}
+
+		foundPath := FindDefaultConfig()
+		if foundPath != configPath {
+			t.Errorf("Expected config path '%s', got '%s'", configPath, foundPath)
+		}
+
+		// Verify the config content
+		loadedConfig, err := LoadConfigFromJSON(foundPath)
+		if err != nil {
+			t.Fatalf("Failed to load found config: %v", err)
+		}
+
+		if loadedConfig.Method != "backup" {
+			t.Errorf("Expected method 'backup', got '%s'", loadedConfig.Method)
+		}
+
+		if loadedConfig.CompressionFormat != "zstd" {
+			t.Errorf("Expected compression format 'zstd', got '%s'", loadedConfig.CompressionFormat)
+		}
+
+		os.RemoveAll(configDir)
+	})
+
+	t.Run("Precedence Order - Current Directory Wins", func(t *testing.T) {
+		// Create config in subdirectory first
+		configDir := filepath.Join(tempDir, "config")
+		err := os.MkdirAll(configDir, 0755)
+		if err != nil {
+			t.Fatalf("Failed to create config directory: %v", err)
+		}
+
+		subdirConfig := &Config{
+			SourcePaths: []string{"/subdir/path"},
+			Method:      "backup",
+		}
+
+		subdirConfigPath := filepath.Join(configDir, "archiveFiles.conf")
+		err = SaveConfigToJSON(subdirConfig, subdirConfigPath)
+		if err != nil {
+			t.Fatalf("Failed to create subdir config: %v", err)
+		}
+
+		// Create config in current directory (should take precedence)
+		currentDirConfig := &Config{
+			SourcePaths: []string{"/current/path"},
+			Method:      "checkpoint",
+		}
+
+		currentConfigPath := "archiveFiles.conf"
+		err = SaveConfigToJSON(currentDirConfig, currentConfigPath)
+		if err != nil {
+			t.Fatalf("Failed to create current dir config: %v", err)
+		}
+
+		// Should find the current directory config first
+		foundPath := FindDefaultConfig()
+		expectedPath := filepath.Join(tempDir, "archiveFiles.conf")
+		if foundPath != expectedPath {
+			t.Errorf("Expected current dir config '%s', got '%s'", expectedPath, foundPath)
+		}
+
+		// Verify it's the current directory config
+		loadedConfig, err := LoadConfigFromJSON(foundPath)
+		if err != nil {
+			t.Fatalf("Failed to load found config: %v", err)
+		}
+
+		if loadedConfig.Method != "checkpoint" {
+			t.Errorf("Expected method 'checkpoint' from current dir, got '%s'", loadedConfig.Method)
+		}
+
+		// Cleanup
+		os.Remove(currentConfigPath)
+		os.RemoveAll(configDir)
+	})
+
+	t.Run("Invalid JSON File Skipped", func(t *testing.T) {
+		// Create an invalid JSON file
+		invalidConfigPath := "archiveFiles.conf"
+		err := os.WriteFile(invalidConfigPath, []byte("invalid json content"), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create invalid config: %v", err)
+		}
+
+		// Should not find any config (invalid one is skipped)
+		foundPath := FindDefaultConfig()
+		if foundPath != "" {
+			t.Errorf("Expected no config found due to invalid JSON, but got: %s", foundPath)
+		}
+
+		os.Remove(invalidConfigPath)
+	})
+}
+
+// Test default configuration file generation
+func TestGenerateDefaultConfigFile(t *testing.T) {
+	tempDir := t.TempDir()
+	originalDir, _ := os.Getwd()
+	defer os.Chdir(originalDir)
+
+	// Change to temp directory for testing
+	os.Chdir(tempDir)
+
+	t.Run("Generate Default Config Successfully", func(t *testing.T) {
+		err := GenerateDefaultConfigFile()
+		if err != nil {
+			t.Fatalf("Failed to generate default config: %v", err)
+		}
+
+		// Check if file was created
+		configPath := "archiveFiles.conf"
+		if _, err := os.Stat(configPath); os.IsNotExist(err) {
+			t.Fatal("Default config file was not created")
+		}
+
+		// Verify the config content
+		loadedConfig, err := LoadConfigFromJSON(configPath)
+		if err != nil {
+			t.Fatalf("Failed to load generated config: %v", err)
+		}
+
+		// Check some default values
+		if loadedConfig.Method != "checkpoint" {
+			t.Errorf("Expected default method 'checkpoint', got '%s'", loadedConfig.Method)
+		}
+
+		if !loadedConfig.Compress {
+			t.Error("Expected default Compress to be true")
+		}
+
+		if loadedConfig.CompressionFormat != "gzip" {
+			t.Errorf("Expected default compression format 'gzip', got '%s'", loadedConfig.CompressionFormat)
+		}
+
+		if loadedConfig.Verify {
+			t.Error("Expected default Verify to be false")
+		}
+
+		if loadedConfig.IncludePattern != "*.db,*.sqlite,*.sqlite3,*.log" {
+			t.Errorf("Expected default include pattern, got '%s'", loadedConfig.IncludePattern)
+		}
+
+		os.Remove(configPath)
+	})
+
+	t.Run("Fail When Config Already Exists", func(t *testing.T) {
+		configPath := "archiveFiles.conf"
+
+		// Create existing file
+		err := os.WriteFile(configPath, []byte("existing content"), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create existing file: %v", err)
+		}
+
+		// Should fail to generate
+		err = GenerateDefaultConfigFile()
+		if err == nil {
+			t.Fatal("Expected error when config file already exists")
+		}
+
+		if !strings.Contains(err.Error(), "already exists") {
+			t.Errorf("Expected 'already exists' error, got: %v", err)
+		}
+
+		os.Remove(configPath)
+	})
+}

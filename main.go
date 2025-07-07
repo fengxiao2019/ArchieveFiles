@@ -137,6 +137,80 @@ func MergeConfigs(jsonConfig *Config, flagConfig *Config) *Config {
 	return &merged
 }
 
+// FindDefaultConfig searches for default configuration files in standard locations
+func FindDefaultConfig() string {
+	// Standard configuration file names to search for
+	configNames := []string{
+		"archiveFiles.conf",
+		"archiveFiles.json",
+		"config.json",
+		".archiveFiles.conf",
+		".archiveFiles.json",
+	}
+
+	// Standard search paths (in order of precedence)
+	searchPaths := []string{
+		".", // Current directory (highest precedence)
+		"./config",
+		"./configs",
+		os.Getenv("HOME") + "/.config/archiveFiles", // User config directory
+		os.Getenv("HOME") + "/.archiveFiles",        // User home directory
+		"/etc/archiveFiles",                         // System-wide config (Unix-like)
+		"/usr/local/etc/archiveFiles",               // Alternative system location
+	}
+
+	// Search each path for each config name
+	for _, searchPath := range searchPaths {
+		for _, configName := range configNames {
+			configPath := filepath.Join(searchPath, configName)
+
+			// Check if file exists and is readable
+			if info, err := os.Stat(configPath); err == nil && !info.IsDir() {
+				// Verify it's a valid JSON config file
+				if _, err := LoadConfigFromJSON(configPath); err == nil {
+					return configPath
+				}
+			}
+		}
+	}
+
+	return "" // No default config found
+}
+
+// GenerateDefaultConfigFile creates a default config file in the current directory
+func GenerateDefaultConfigFile() error {
+	configPath := "archiveFiles.conf"
+
+	// Check if file already exists
+	if _, err := os.Stat(configPath); err == nil {
+		return fmt.Errorf("configuration file already exists: %s", configPath)
+	}
+
+	// Create a comprehensive default configuration
+	defaultConfig := &Config{
+		SourcePaths:       []string{"./data", "./databases"},
+		BackupPath:        "backup_$(date +%Y%m%d_%H%M%S)",
+		ArchivePath:       "archive_$(date +%Y%m%d_%H%M%S).tar.gz",
+		Method:            "checkpoint",
+		Compress:          true,
+		RemoveBackup:      true,
+		BatchMode:         true,
+		IncludePattern:    "*.db,*.sqlite,*.sqlite3,*.log",
+		ExcludePattern:    "*temp*,*cache*,*.tmp",
+		ShowProgress:      true,
+		Filter:            "",
+		CompressionFormat: "gzip",
+		Verify:            false,
+	}
+
+	err := SaveConfigToJSON(defaultConfig, configPath)
+	if err != nil {
+		return fmt.Errorf("failed to create default config: %v", err)
+	}
+
+	return nil
+}
+
 // Progress tracking structure
 type ProgressTracker struct {
 	mu            sync.Mutex
@@ -536,10 +610,12 @@ func parseFlags() *Config {
 	var sourcesFlag string
 	var configFile string
 	var generateConfig string
+	var initConfig bool
 
 	// Define all flags
 	flag.StringVar(&configFile, "config", "", "JSON configuration file path")
 	flag.StringVar(&generateConfig, "generate-config", "", "Generate a sample configuration file and exit")
+	flag.BoolVar(&initConfig, "init", false, "Generate default configuration file (archiveFiles.conf) in current directory")
 	flag.StringVar(&sourceFlag, "source", "", "Source database path or directory")
 	flag.StringVar(&sourcesFlag, "sources", "", "Multiple source paths, comma-separated")
 
@@ -571,6 +647,10 @@ func parseFlags() *Config {
 		fmt.Fprintf(flag.CommandLine.Output(), "\nConfiguration File:\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  Use -config=file.json to load settings from JSON file\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  Use -generate-config=file.json to create a sample config file\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  Use -init to create default archiveFiles.conf in current directory\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "  Without -config flag, searches for default config files:\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "    ./archiveFiles.conf, ./archiveFiles.json, ./config.json\n")
+		fmt.Fprintf(flag.CommandLine.Output(), "    ~/.config/archiveFiles/, ~/.archiveFiles/, /etc/archiveFiles/\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  Command line flags override JSON config settings\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "\nVerification:\n")
 		fmt.Fprintf(flag.CommandLine.Output(), "  Use -verify to check backup integrity against source data\n")
@@ -584,6 +664,19 @@ func parseFlags() *Config {
 	}
 
 	flag.Parse()
+
+	// Handle init flag - generate default config
+	if initConfig {
+		err := GenerateDefaultConfigFile()
+		if err != nil {
+			log.Fatalf("Failed to generate default config: %v", err)
+		}
+
+		fmt.Printf("Default configuration file generated: archiveFiles.conf\n")
+		fmt.Printf("Edit the file as needed and run: %s\n", os.Args[0])
+		fmt.Printf("The program will automatically detect and use this config file.\n")
+		os.Exit(0)
+	}
 
 	// Handle config file generation
 	if generateConfig != "" {
@@ -625,7 +718,21 @@ func parseFlags() *Config {
 		finalConfig = MergeConfigs(jsonConfig, config)
 		log.Printf("Loaded configuration from: %s", configFile)
 	} else {
-		finalConfig = config
+		// Try to find default configuration file
+		defaultConfigPath := FindDefaultConfig()
+		if defaultConfigPath != "" {
+			jsonConfig, err := LoadConfigFromJSON(defaultConfigPath)
+			if err != nil {
+				log.Printf("Warning: Found default config file '%s' but failed to load: %v", defaultConfigPath, err)
+				finalConfig = config
+			} else {
+				// Merge default config with command line flags
+				finalConfig = MergeConfigs(jsonConfig, config)
+				log.Printf("Loaded default configuration from: %s", defaultConfigPath)
+			}
+		} else {
+			finalConfig = config
+		}
 	}
 
 	// Parse source paths from flags

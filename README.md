@@ -19,27 +19,15 @@ A powerful tool for archiving RocksDB and SQLite databases with comprehensive pr
 
 ## 🚀 Quick Start
 
-### Basic Usage
-
 ```bash
-# Simple backup with progress
-./archiveFiles database1 database2 archive.tar.gz
+# Initialize default configuration (recommended first step)
+./archiveFiles -init
 
-# High-performance checkpoint backup
-./archiveFiles -method=checkpoint /data/databases /backup/db-backup.tar.zst
-```
+# Edit archiveFiles.conf as needed, then run:
+./archiveFiles
 
-### Using JSON Configuration
-
-```bash
-# Generate a sample configuration file
-./archiveFiles -generate-config=my-config.json
-
-# Run with configuration file
-./archiveFiles -config=my-config.json
-
-# Override config with command line flags
-./archiveFiles -config=my-config.json -method=backup -archive=override.tar.gz
+# Or use directly with command line arguments:
+./archiveFiles testdata/dir1 testdata/dir2 my-backup.tar.gz
 ```
 
 ## 📋 Configuration
@@ -295,3 +283,38 @@ The verification feature ensures that your backup data is identical to the sourc
 ```
 
 **Note**: Verification adds time to the backup process as it reads and compares all data. For large databases, consider running verification periodically rather than on every backup. 
+
+### Configuration Management
+
+| Flag | Description |
+|------|-------------|
+| `-config=file.json` | Load settings from specific JSON file |
+| `-generate-config=file.json` | Generate sample configuration file |
+| `-init` | Create default `archiveFiles.conf` in current directory |
+
+### Default Configuration Discovery
+
+When no `-config` flag is specified, archiveFiles automatically searches for configuration files in the following locations (in order of precedence):
+
+1. **Current Directory**: `./archiveFiles.conf`, `./archiveFiles.json`, `./config.json`
+2. **Config Subdirectories**: `./config/`, `./configs/`
+3. **User Home**: `~/.config/archiveFiles/`, `~/.archiveFiles/`
+4. **System-wide**: `/etc/archiveFiles/`, `/usr/local/etc/archiveFiles/`
+
+This behavior is similar to how nginx searches for `nginx.conf` - you can simply run `archiveFiles` and it will automatically find and use your configuration.
+
+```bash
+# Initialize default config (one-time setup)
+./archiveFiles -init
+
+# Edit the generated archiveFiles.conf as needed
+nano archiveFiles.conf
+
+# Run without any flags - automatically finds and uses config
+./archiveFiles
+
+# Override specific settings via command line
+./archiveFiles -verify -compression=zstd
+```
+
+### Configuration Fields 

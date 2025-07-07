@@ -339,4 +339,27 @@ test-verify-config:
 clean-verify:
 	rm -f verified-backup.tar.gz verified-backup.tar.zst verify-config.json
 
-.PHONY: build test test-no-progress test-checkpoint test-backup test-copy benchmark clean test-config test-config-override generate-configs test-dev-config clean-configs test-verify test-verify-config clean-verify 
+# Initialize default configuration file
+init-config:
+	./archiveFiles -init
+
+# Test with default configuration (after creating it)
+test-default-config: init-config
+	@echo "Testing with default configuration..."
+	./archiveFiles testdata default-config-test.tar.gz
+
+# Test default config discovery
+test-config-discovery:
+	@echo "Creating test config in current directory..."
+	echo '{"source_paths":["testdata"],"archive_path":"discovery-test.tar.gz","method":"checkpoint","verify":false,"show_progress":false}' > archiveFiles.conf
+	@echo "Running without -config flag (should auto-discover)..."
+	./archiveFiles
+	@echo "Cleaning up..."
+	rm -f archiveFiles.conf discovery-test.tar.gz
+
+# Clean default configuration files
+clean-default-config:
+	rm -f archiveFiles.conf archiveFiles.json config.json .archiveFiles.conf .archiveFiles.json
+	rm -f default-config-test.tar.gz discovery-test.tar.gz
+
+.PHONY: build test test-no-progress test-checkpoint test-backup test-copy benchmark clean test-config test-config-override generate-configs test-dev-config clean-configs test-verify test-verify-config clean-verify init-config test-default-config test-config-discovery clean-default-config 
