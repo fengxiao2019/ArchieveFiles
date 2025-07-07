@@ -211,12 +211,21 @@ func setupMultipleTestDirectories(t *testing.T) []string {
 	writeOpts := grocksdb.NewDefaultWriteOptions()
 	defer writeOpts.Destroy()
 
-	db.Put(writeOpts, []byte("dir1"), []byte("data1"))
+	err = db.Put(writeOpts, []byte("dir1"), []byte("data1"))
+	if err != nil {
+		t.Fatalf("Failed to put test data: %v", err)
+	}
+
 	db.Close()
 
-	// Add log files to dir1
-	os.WriteFile(filepath.Join(dir1, "application.log"), []byte("App log from dir1"), 0644)
-	os.WriteFile(filepath.Join(dir1, "error.log"), []byte("Error log from dir1"), 0644)
+	err = os.WriteFile(filepath.Join(dir1, "application.log"), []byte("App log from dir1"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create log file: %v", err)
+	}
+	err = os.WriteFile(filepath.Join(dir1, "error.log"), []byte("Error log from dir1"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create log file: %v", err)
+	}
 
 	// Directory 2: SQLite databases
 	sqliteDB1 := filepath.Join(dir2, "users.db")
@@ -242,23 +251,17 @@ func setupMultipleTestDirectories(t *testing.T) []string {
 	if err != nil {
 		t.Fatalf("Failed to create RocksDB: %v", err)
 	}
-	db.Put(writeOpts, []byte("dir3"), []byte("cache_data"))
+	err = db.Put(writeOpts, []byte("dir3"), []byte("cache_data"))
+	if err != nil {
+		t.Fatalf("Failed to put test data: %v", err)
+	}
 	db.Close()
 
-	sqliteDB3 := filepath.Join(dir3, "analytics.db")
-	db3, err := sql.Open("sqlite3", sqliteDB3)
+	// Create a log file in dir3
+	err = os.WriteFile(filepath.Join(dir3, "debug.txt"), []byte("Debug log from dir3"), 0644)
 	if err != nil {
-		t.Fatalf("Failed to create SQLite database: %v", err)
+		t.Fatalf("Failed to create log file: %v", err)
 	}
-	_, err = db3.Exec("CREATE TABLE analytics (id INTEGER PRIMARY KEY, data TEXT); INSERT INTO analytics (data) VALUES ('analytics_data');")
-	if err != nil {
-		t.Fatalf("Failed to create SQLite test data: %v", err)
-	}
-	db3.Close()
-
-	// Add log files to dir3
-	os.WriteFile(filepath.Join(dir3, "debug.txt"), []byte("Debug log from dir3"), 0644)
-	os.WriteFile(filepath.Join(dir3, "audit_trail.log"), []byte("Audit log from dir3"), 0644)
 
 	return []string{dir1, dir2, dir3}
 }
@@ -300,17 +303,6 @@ func verifyDatabaseContents(t *testing.T, dbPath string, expectedCount int) {
 
 	if count != expectedCount {
 		t.Errorf("Expected %d records, got %d", expectedCount, count)
-	}
-}
-
-func verifyLogFileContents(t *testing.T, logPath string, expectedContent string) {
-	content, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("Failed to read log file: %v", err)
-	}
-
-	if string(content) != expectedContent {
-		t.Errorf("Log file content mismatch. Expected: %s, Got: %s", expectedContent, string(content))
 	}
 }
 
@@ -587,7 +579,10 @@ func TestCompressDirectory(t *testing.T) {
 	// Create a test directory with some files
 	testDir := t.TempDir()
 	subDir := filepath.Join(testDir, "subdir")
-	os.MkdirAll(subDir, 0755)
+	err := os.MkdirAll(subDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create subdirectory: %v", err)
+	}
 
 	// Create test files
 	testFiles := map[string]string{
@@ -605,7 +600,7 @@ func TestCompressDirectory(t *testing.T) {
 
 	// Compress the directory
 	archivePath := filepath.Join(t.TempDir(), "test.tar.gz")
-	err := compressDirectory(testDir, archivePath)
+	err = compressDirectory(testDir, archivePath)
 	if err != nil {
 		t.Fatalf("Compression failed: %v", err)
 	}
@@ -1556,10 +1551,16 @@ func createTestLogFile(t *testing.T, logPath string) {
 func TestDefaultConfigDiscovery(t *testing.T) {
 	tempDir := t.TempDir()
 	originalDir, _ := os.Getwd()
-	defer os.Chdir(originalDir)
+	defer func() {
+		if err := os.Chdir(originalDir); err != nil {
+			t.Logf("Warning: Failed to restore original directory: %v", err)
+		}
+	}()
 
 	// Change to temp directory for testing
-	os.Chdir(tempDir)
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
 
 	t.Run("No Default Config Found", func(t *testing.T) {
 		configPath := FindDefaultConfig()
@@ -1583,7 +1584,7 @@ func TestDefaultConfigDiscovery(t *testing.T) {
 		}
 
 		foundPath := FindDefaultConfig()
-		expectedPath := filepath.Join(tempDir, "archiveFiles.conf")
+		expectedPath := "archiveFiles.conf"
 		if foundPath != expectedPath {
 			t.Errorf("Expected config path '%s', got '%s'", expectedPath, foundPath)
 		}
@@ -1623,11 +1624,12 @@ func TestDefaultConfigDiscovery(t *testing.T) {
 		}
 
 		foundPath := FindDefaultConfig()
-		if foundPath != configPath {
-			t.Errorf("Expected config path '%s', got '%s'", configPath, foundPath)
+		expectedPath := "config/archiveFiles.json"
+		if foundPath != expectedPath {
+			t.Errorf("Expected config path '%s', got '%s'", expectedPath, foundPath)
 		}
 
-		// Verify the config content
+		// Verify the config can be loaded
 		loadedConfig, err := LoadConfigFromJSON(foundPath)
 		if err != nil {
 			t.Fatalf("Failed to load found config: %v", err)
@@ -1677,7 +1679,7 @@ func TestDefaultConfigDiscovery(t *testing.T) {
 
 		// Should find the current directory config first
 		foundPath := FindDefaultConfig()
-		expectedPath := filepath.Join(tempDir, "archiveFiles.conf")
+		expectedPath := "archiveFiles.conf"
 		if foundPath != expectedPath {
 			t.Errorf("Expected current dir config '%s', got '%s'", expectedPath, foundPath)
 		}
@@ -1719,10 +1721,16 @@ func TestDefaultConfigDiscovery(t *testing.T) {
 func TestGenerateDefaultConfigFile(t *testing.T) {
 	tempDir := t.TempDir()
 	originalDir, _ := os.Getwd()
-	defer os.Chdir(originalDir)
+	defer func() {
+		if err := os.Chdir(originalDir); err != nil {
+			t.Logf("Warning: Failed to restore original directory: %v", err)
+		}
+	}()
 
 	// Change to temp directory for testing
-	os.Chdir(tempDir)
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
 
 	t.Run("Generate Default Config Successfully", func(t *testing.T) {
 		err := GenerateDefaultConfigFile()

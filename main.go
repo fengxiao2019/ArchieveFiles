@@ -420,7 +420,7 @@ func truncateString(s string, length int) string {
 // Calculate directory size
 func calculateSize(path string) int64 {
 	var size int64
-	filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -429,6 +429,10 @@ func calculateSize(path string) int64 {
 		}
 		return nil
 	})
+	if err != nil {
+		// Log error but don't fail - return 0 size on error
+		return 0
+	}
 	return size
 }
 
@@ -1140,7 +1144,10 @@ func copyFile(sourcePath, targetPath string) error {
 
 	// Preserve file permissions
 	if sourceInfo, err := os.Stat(sourcePath); err == nil {
-		os.Chmod(targetPath, sourceInfo.Mode())
+		if chmodErr := os.Chmod(targetPath, sourceInfo.Mode()); chmodErr != nil {
+			// Log error but don't fail the copy operation
+			log.Printf("Warning: Failed to preserve file permissions for %s: %v", targetPath, chmodErr)
+		}
 	}
 
 	return nil

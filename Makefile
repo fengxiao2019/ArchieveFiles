@@ -93,7 +93,15 @@ deps:
 .PHONY: lint
 lint:
 	@echo "Running linter..."
-	golangci-lint run
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run; \
+	elif [ -f "$(HOME)/go/bin/golangci-lint" ]; then \
+		$(HOME)/go/bin/golangci-lint run; \
+	else \
+		echo "Installing golangci-lint..."; \
+		go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest; \
+		$(HOME)/go/bin/golangci-lint run; \
+	fi
 
 # Format the code
 .PHONY: fmt
