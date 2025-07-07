@@ -1,7 +1,8 @@
 {
   "source_paths": [
-    "testdata/dir1",
-    "testdata/dir2"
+    "testdata/mixed_dbs/dir1",
+    "testdata/mixed_dbs/dir2",
+    "testdata/mixed_dbs/dir3"
   ],
   "backup_path": "demo-backup",
   "archive_path": "demo-final-archive.tar.zst",
@@ -9,9 +10,10 @@
   "compress": true,
   "remove_backup": true,
   "batch_mode": true,
-  "include_pattern": "*.db,*.sqlite,*.log",
+  "include_pattern": "*.db,*.sqlite,*.log,*.txt",
   "exclude_pattern": "*temp*,*cache*",
   "show_progress": true,
   "filter": "",
-  "compression_format": "zstd"
+  "compression_format": "zstd",
+  "verify": true
 }

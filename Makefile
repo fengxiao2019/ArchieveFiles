@@ -2,8 +2,8 @@
 
 # Variables
 BINARY_NAME=rocksdb-archive
-TEST_DB_PATH=./testdata/test_db
 COVERAGE_FILE=coverage.out
+TEST_DB_PATH=testdata/test_db
 
 # Default target
 .PHONY: all
@@ -21,11 +21,6 @@ build-race:
 	@echo "Building $(BINARY_NAME) with race detection..."
 	go build -race -o $(BINARY_NAME) .
 
-# Run tests
-.PHONY: test
-test:
-	@echo "Running tests..."
-	go test -v ./...
 
 # Run tests with coverage
 .PHONY: test-coverage
@@ -56,16 +51,14 @@ test-short:
 # Generate test database
 .PHONY: generate-testdb
 generate-testdb:
-	@echo "Generating test database..."
-	@mkdir -p testdata
-	go run testdata/generate_test_db.go $(TEST_DB_PATH)
+	@echo "Generating test RocksDB..."
+	cd testdata && go run generate_test_db.go test_db rocksdb
 
-# Generate mixed test databases for batch testing
+# Generate mixed test databases
 .PHONY: generate-mixed-testdbs
 generate-mixed-testdbs:
 	@echo "Generating mixed test databases..."
-	@mkdir -p testdata
-	go run testdata/generate_mixed_test_dbs.go ./testdata/mixed_dbs
+	cd testdata && go run generate_mixed_test_dbs.go mixed_dbs
 
 # Clean generated files
 .PHONY: clean
@@ -73,6 +66,7 @@ clean:
 	@echo "Cleaning up..."
 	rm -f $(BINARY_NAME)
 	rm -f $(COVERAGE_FILE)
+	rm -rf output* $(BINARY_NAME) backup_*
 	rm -f coverage.html
 	rm -rf testdata/test_db*
 	rm -rf testdata/mixed_dbs*
@@ -80,7 +74,9 @@ clean:
 	rm -rf testdata/*.tar.gz
 	rm -rf *.tar.gz
 	rm -rf *.tar.zst
-	m -f bench-* archiveFiles
+	rm -f bench-* archiveFiles
+	rm -f coverage.html
+	rm -rf testdata/testdata
 
 # Install dependencies
 .PHONY: deps
@@ -127,100 +123,58 @@ install:
 
 # Example usage targets
 .PHONY: example-backup
-example-backup: generate-testdb build
+example-backup: build generate-testdb
 	@echo "Example: Backup method"
 	./$(BINARY_NAME) -source $(TEST_DB_PATH) -backup ./testdata/backup-example -method backup
 
 .PHONY: example-checkpoint
-example-checkpoint: generate-testdb build
-	@echo "Example: Checkpoint method"
+example-checkpoint: build generate-testdb
+	@echo "Example: Checkpoint method" 
 	./$(BINARY_NAME) -source $(TEST_DB_PATH) -backup ./testdata/checkpoint-example -method checkpoint
 
 .PHONY: example-copy
-example-copy: generate-testdb build
+example-copy: build generate-testdb
 	@echo "Example: Copy method"
 	./$(BINARY_NAME) -source $(TEST_DB_PATH) -backup ./testdata/copy-example -method copy
 
 .PHONY: example-compress
-example-compress: generate-testdb build
+example-compress: build generate-testdb
 	@echo "Example: Full workflow with compression"
-	./$(BINARY_NAME) -source $(TEST_DB_PATH) -backup ./testdata/compress-example -archive ./testdata/archive-example.tar.gz -method backup -compress=true -remove-backup=true
+	./$(BINARY_NAME) -source $(TEST_DB_PATH) -backup ./testdata/compress-example -method copy -archive ./testdata/compressed.tar.gz -compress
 
-# Batch processing examples
 .PHONY: example-batch
-example-batch: generate-mixed-testdbs build
+example-batch: build generate-mixed-testdbs
 	@echo "Example: Batch processing multiple databases"
-	./$(BINARY_NAME) -source ./testdata/mixed_dbs -backup ./testdata/batch-backup -archive ./testdata/batch-archive.tar.gz -batch=true -compress=true -remove-backup=true
+	./$(BINARY_NAME) -sources="testdata/mixed_dbs/dir1,testdata/mixed_dbs/dir2,testdata/mixed_dbs/dir3" -backup=backup_batch -archive=batch_result.tar.gz -compress=true
 
 .PHONY: example-batch-filter
-example-batch-filter: generate-mixed-testdbs build
-	@echo "Example: Batch processing with file filtering"
-	./$(BINARY_NAME) -source ./testdata/mixed_dbs -backup ./testdata/filtered-backup -include="*.db,*.sqlite" -batch=true -compress=true -remove-backup=true
+example-batch-filter: build generate-mixed-testdbs
+	@echo "Example: Batch processing with filters"
+	./$(BINARY_NAME) -sources="testdata/mixed_dbs/dir1,testdata/mixed_dbs/dir2" -backup=backup_filtered -archive=filtered_result.tar.gz -compress=true
 
 .PHONY: example-sqlite-only
-example-sqlite-only: generate-mixed-testdbs build
-	@echo "Example: Process only SQLite databases"
-	./$(BINARY_NAME) -source ./testdata/mixed_dbs -backup ./testdata/sqlite-backup -include="*.db,*.sqlite,*.sqlite3" -batch=true -compress=true -remove-backup=true
+example-sqlite-only: build generate-mixed-testdbs
+	@echo "Example: SQLite databases only"
+	./$(BINARY_NAME) -source="testdata/mixed_dbs/dir2" -backup=backup_sqlite -archive=sqlite_result.tar.gz -compress=true
 
 # New examples
 .PHONY: example-multi
-example-multi: build
+example-multi: build generate-mixed-testdbs
 	@echo "=== Multiple Source Directories Example ==="
-	@mkdir -p testdata/dir1 testdata/dir2 testdata/dir3
-	@# Create test databases in different directories
-	@go run testdata/generate_test_db.go testdata/dir1/app.db sqlite
-	@go run testdata/generate_test_db.go testdata/dir2/cache rocksdb
-	@echo "App log from dir1" > testdata/dir1/application.log
-	@echo "Error log from dir2" > testdata/dir2/error.log
-	@echo "Debug info from dir3" > testdata/dir3/debug.txt
-	./$(BINARY_NAME) -sources="testdata/dir1,testdata/dir2,testdata/dir3" -backup=backup_multi -archive=multi_sources.tar.gz -compress=true
+	./$(BINARY_NAME) -sources="testdata/mixed_dbs/dir1,testdata/mixed_dbs/dir2,testdata/mixed_dbs/dir3" -backup=backup_multi -archive=multi_sources.tar.gz -compress=true
 	@echo "Multiple source directories archived to multi_sources.tar.gz"
 
 .PHONY: example-logs
-example-logs: build
+example-logs: build generate-mixed-testdbs
 	@echo "=== Log Files Only Example ==="
-	@mkdir -p testdata/logs
-	@echo "Application started at $(shell date)" > testdata/logs/application.log
-	@echo "ERROR: Database connection failed" > testdata/logs/error.log
-	@echo "DEBUG: Processing user request" > testdata/logs/debug.txt
-	@echo "ACCESS: 192.168.1.1 GET /api/users" > testdata/logs/access_log
-	@echo "AUDIT: Admin user logged in" > testdata/logs/audit_trail.log
-	./$(BINARY_NAME) -source=testdata/logs -include="*.log,*.txt" -backup=backup_logs -archive=logs_only.tar.gz -compress=true
+	./$(BINARY_NAME) -source="testdata/mixed_dbs" -backup=backup_logs -archive=logs_only.tar.gz -compress=true
 	@echo "Log files archived to logs_only.tar.gz"
 
-.PHONY: example-filter
-example-filter: build
-	@echo "=== Filtering Example ==="
-	./$(BINARY_NAME) -source=testdata/mixed_dbs -include="*.db,*.log" -exclude="*temp*,*cache*" -backup=backup_filtered -archive=filtered.tar.gz -compress=true
-	@echo "Filtered databases archived to filtered.tar.gz"
-
-.PHONY: example-uncompressed
-example-uncompressed: build
-	@echo "=== Uncompressed Backup Example ==="
-	./$(BINARY_NAME) -source=testdata/mixed_dbs -backup=backup_uncompressed -compress=false -remove-backup=false
-	@echo "Uncompressed backup created in backup_uncompressed/"
-
-.PHONY: example-methods
-example-methods: build
-	@echo "=== RocksDB Backup Methods Comparison ==="
-	@echo "Testing backup method:"
-	./$(BINARY_NAME) -source=testdata/mixed_dbs/rocks1 -method=backup -backup=backup_method_backup -archive=method_backup.tar.gz
-	@echo "Testing checkpoint method:"
-	./$(BINARY_NAME) -source=testdata/mixed_dbs/rocks1 -method=checkpoint -backup=backup_method_checkpoint -archive=method_checkpoint.tar.gz
-	@echo "Testing copy method:"
-	./$(BINARY_NAME) -source=testdata/mixed_dbs/rocks1 -method=copy -backup=backup_method_copy -archive=method_copy.tar.gz
-
 .PHONY: example-progress
-example-progress: build
+example-progress: build generate-mixed-testdbs
 	@echo "=== Progress Bar Example ==="
-	@echo "Creating test data..."
-	@mkdir -p testdata/dir1 testdata/dir2
-	@go run testdata/generate_test_db.go testdata/dir1/app.db rocksdb
-	@go run testdata/generate_test_db.go testdata/dir2/cache rocksdb
-	@echo "Application started at $(shell date)" > testdata/dir1/application.log
-	@echo "ERROR: Database connection failed" > testdata/dir2/error.log
 	@echo "Running with progress bar (default):"
-	./$(BINARY_NAME) -sources="testdata/dir1,testdata/dir2" -archive="progress_demo.tar.gz" -progress=true
+	./$(BINARY_NAME) -sources="testdata/mixed_dbs/dir1,testdata/mixed_dbs/dir2" -archive="progress_demo.tar.gz" -progress=true
 
 .PHONY: example-no-progress
 example-no-progress: build
@@ -244,7 +198,7 @@ view-archive:
 
 # Full demo - run all examples
 .PHONY: demo
-demo: generate-mixed-testdbs build example example-batch example-multi example-logs example-filter view-archive
+demo: build example example-batch example-multi example-logs example-filter view-archive
 	@echo ""
 	@echo "=== Demo Complete ==="
 	@echo "Created archives:"
@@ -259,12 +213,10 @@ help:
 	@echo "Available targets:"
 	@echo "  build              - Build the binary"
 	@echo "  build-race         - Build with race detection"
-	@echo "  test               - Run all tests"
 	@echo "  test-coverage      - Run tests with coverage report"
 	@echo "  test-race          - Run tests with race detection"
 	@echo "  test-short         - Run short tests only"
 	@echo "  bench              - Run benchmarks"
-	@echo "  generate-testdb    - Generate test database"
 	@echo "  clean              - Clean generated files"
 	@echo "  deps               - Install dependencies"
 	@echo "  lint               - Run linter"
@@ -272,23 +224,20 @@ help:
 	@echo "  vet                - Vet code"
 	@echo "  check              - Run quality checks"
 	@echo "  install            - Install binary"
+	@echo "  generate-testdb    - Generate test RocksDB database"
+	@echo "  generate-mixed-testdbs - Generate mixed test databases"
 	@echo "  example-backup     - Run backup example"
 	@echo "  example-checkpoint - Run checkpoint example"
 	@echo "  example-copy       - Run copy example"
 	@echo "  example-compress   - Run compression example"
 	@echo "  example-batch      - Run batch processing example"
-	@echo "  example-multi      - Run multiple source directories example"
-	@echo "  example-logs       - Run log files only example"
-	@echo "  example-filter     - Run filtering example"
-	@echo "  example-uncompressed - Run uncompressed backup example"
-	@echo "  example-methods    - Run RocksDB backup methods comparison"
-	@echo "  view-archive       - View archive contents"
-	@echo "  demo               - Run all examples"
-	@echo "  help               - Show this help"
+	@echo "  example-multi      - Run multiple sources example"
+	@echo "  example-progress   - Run progress bar example"
+	@echo "  init-config        - Generate default configuration file"
+	@echo "  test-verify        - Test backup verification"
+	@echo "  test-config        - Test configuration loading"
+	@echo "  help               - Show this help message"
 
-# Test with multiple sources
-test: build
-	./$(BINARY_NAME) testdata/dir1 testdata/dir2 output
 
 # Test with progress disabled (automation mode)
 test-no-progress: build
@@ -307,10 +256,6 @@ test-copy: build
 # Performance comparison
 benchmark: build test-checkpoint test-backup test-copy
 	@echo "All backup methods completed. Compare the times above."
-
-# Clean up test outputs
-clean:
-	rm -rf output* $(BINARY_NAME) backup_*
 
 # Test JSON configuration support
 test-config: build
