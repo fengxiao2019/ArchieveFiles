@@ -897,6 +897,12 @@ func TestMultipleSourceDirectories(t *testing.T) {
 		sourceBaseName := filepath.Base(db.SourceRoot)
 		dbBackupPath := filepath.Join(backupDir, sourceBaseName, db.Name)
 
+		// Ensure the parent directory exists
+		parentDir := filepath.Dir(dbBackupPath)
+		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			t.Fatalf("Failed to create parent directory %s: %v", parentDir, err)
+		}
+
 		switch db.Type {
 		case DatabaseTypeRocksDB:
 			err := processRocksDB(db.Path, dbBackupPath, config.Method, NewProgressTracker(false))
@@ -1016,6 +1022,12 @@ func TestFullWorkflowMixedContent(t *testing.T) {
 	for _, db := range allDatabases {
 		sourceBaseName := filepath.Base(db.SourceRoot)
 		dbBackupPath := filepath.Join(backupDir, sourceBaseName, db.Name)
+
+		// Ensure the parent directory exists
+		parentDir := filepath.Dir(dbBackupPath)
+		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			t.Fatalf("Failed to create parent directory %s: %v", parentDir, err)
+		}
 
 		switch db.Type {
 		case DatabaseTypeRocksDB:
