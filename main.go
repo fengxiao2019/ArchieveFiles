@@ -143,7 +143,6 @@ func FindDefaultConfig() string {
 	configNames := []string{
 		"archiveFiles.conf",
 		"archiveFiles.json",
-		"config.json",
 		".archiveFiles.conf",
 		".archiveFiles.json",
 	}
@@ -155,8 +154,7 @@ func FindDefaultConfig() string {
 		"./configs",
 		os.Getenv("HOME") + "/.config/archiveFiles", // User config directory
 		os.Getenv("HOME") + "/.archiveFiles",        // User home directory
-		"/etc/archiveFiles",                         // System-wide config (Unix-like)
-		"/usr/local/etc/archiveFiles",               // Alternative system location
+
 	}
 
 	// Search each path for each config name
