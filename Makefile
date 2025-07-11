@@ -1,7 +1,7 @@
 # RocksDB Archive Tool Makefile
 
 # Variables
-BINARY_NAME=rocksdb-archive
+BINARY_NAME=archiveFiles
 COVERAGE_FILE=coverage.out
 TEST_DB_PATH=testdata/test_db
 
@@ -13,14 +13,19 @@ all: build
 .PHONY: build
 build:
 	@echo "Building $(BINARY_NAME)..."
-	go build -o $(BINARY_NAME) .
+	go build -o $(BINARY_NAME) ./cmd/archiveFiles
 
 # Build with race detection
 .PHONY: build-race
 build-race:
 	@echo "Building $(BINARY_NAME) with race detection..."
-	go build -race -o $(BINARY_NAME) .
+	go build -race -o $(BINARY_NAME) ./cmd/archiveFiles
 
+# Run tests
+.PHONY: test
+test:
+	@echo "Running tests..."
+	go test -v ./...
 
 # Run tests with coverage
 .PHONY: test-coverage
@@ -66,7 +71,7 @@ clean:
 	@echo "Cleaning up..."
 	rm -f $(BINARY_NAME)
 	rm -f $(COVERAGE_FILE)
-	rm -rf output* $(BINARY_NAME) backup_*
+	rm -rf output* backup_*
 	rm -f coverage.html
 	rm -rf testdata/test_db*
 	rm -rf testdata/mixed_dbs*
@@ -74,7 +79,7 @@ clean:
 	rm -rf testdata/*.tar.gz
 	rm -rf *.tar.gz
 	rm -rf *.tar.zst
-	rm -f bench-* archiveFiles
+	rm -f bench-*
 	rm -f coverage.html
 	rm -rf testdata/testdata
 

@@ -49,17 +49,29 @@ func FormatDuration(d time.Duration) string {
 		return fmt.Sprintf("%.0fs", d.Seconds())
 	}
 	if d < time.Hour {
-		return fmt.Sprintf("%.0fm%.0fs", d.Minutes(), d.Seconds()-60*d.Minutes())
+		minutes := int(d.Minutes())
+		seconds := int(d.Seconds()) - minutes*60
+		return fmt.Sprintf("%dm%ds", minutes, seconds)
 	}
-	return fmt.Sprintf("%.0fh%.0fm", d.Hours(), d.Minutes()-60*d.Hours())
+	hours := int(d.Hours())
+	minutes := int(d.Minutes()) - hours*60
+	return fmt.Sprintf("%dh%dm", hours, minutes)
 }
 
 // TruncateString truncates string to specified length
 func TruncateString(s string, length int) string {
-	if len(s) <= length {
+	// Convert to runes for proper Unicode handling
+	runes := []rune(s)
+	if len(runes) <= length {
 		return s
 	}
-	return s[:length-3] + "..."
+	if length < 3 {
+		if length <= 0 {
+			return ""
+		}
+		return string(runes[:length])
+	}
+	return string(runes[:length-3]) + "..."
 }
 
 // CopyFile copies a file from source to destination
