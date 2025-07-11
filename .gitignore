@@ -16,9 +16,8 @@
 # Go workspace file
 *.code-workspace
 
-# Go build cache
-**/go.sum
-**/go.mod
+# Go build cache (don't ignore go.sum and go.mod)
+/build/
 
 # IDE/editor directories and files
 .idea/
@@ -37,4 +36,24 @@
 
 # Local env files
 .env
-.env.* 
+.env.*
+
+# archiveFiles specific
+# Backup files and directories
+backup_*
+test_*
+demo_*
+*.tar.gz
+*.tar.bz2
+*.zip
+
+# Binary executables
+/archiveFiles
+/cmd/archiveFiles/archiveFiles
+
+# Temporary test databases
+/testdata/temp_*
+
+# Lock files (except go.sum)
+*.lock
+!go.sum 
