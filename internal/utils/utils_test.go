@@ -3,6 +3,7 @@ package utils
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 )
@@ -324,4 +325,32 @@ func TestTruncateString_EdgeCases(t *testing.T) {
 			t.Errorf("TruncateString should handle unicode properly, got %s", result)
 		}
 	})
+}
+
+func TestReplaceDateVars(t *testing.T) {
+	// 测试替换
+	in := "backup_$(date +%Y%m%d_%H%M%S)"
+	out := ReplaceDateVars(in)
+	matched, err := regexp.MatchString(`backup_\d{8}_\d{6}$`, out)
+	if err != nil {
+		t.Fatalf("regexp error: %v", err)
+	}
+	if !matched {
+		t.Errorf("expected backup_YYYYMMDD_HHMMSS, got %s", out)
+	}
+
+	// 测试无变量
+	in2 := "plain_backup"
+	out2 := ReplaceDateVars(in2)
+	if out2 != in2 {
+		t.Errorf("expected %s, got %s", in2, out2)
+	}
+
+	// 测试变量在中间
+	in3 := "foo_$(date +%Y%m%d_%H%M%S)_bar"
+	out3 := ReplaceDateVars(in3)
+	matched3, _ := regexp.MatchString(`foo_\d{8}_\d{6}_bar`, out3)
+	if !matched3 {
+		t.Errorf("expected foo_YYYYMMDD_HHMMSS_bar, got %s", out3)
+	}
 }

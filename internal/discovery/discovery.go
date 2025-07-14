@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"archiveFiles/internal/types"
 	"archiveFiles/internal/utils"
@@ -238,7 +237,7 @@ func CheckDatabaseLock(dbPath string, dbType types.DatabaseType) (*types.Databas
 	case types.DatabaseTypeSQLite:
 		return checkSQLiteLock(dbPath)
 	case types.DatabaseTypeLogFile:
-		return checkFileLock(dbPath)
+		return nil, nil
 	default:
 		// For unknown types, return nil
 		return nil, nil
@@ -302,46 +301,6 @@ func checkSQLiteLock(dbPath string) (*types.DatabaseLockInfo, error) {
 		info.IsLocked = true // Set IsLocked to true when WAL files are present
 		info.LockType = "SQLite WAL/journal files present"
 		info.ProcessInfo = "Database may be in use (WAL/journal files exist)"
-	}
-
-	return info, nil
-}
-
-// checkFileLock checks if a file is locked by another process
-func checkFileLock(filePath string) (*types.DatabaseLockInfo, error) {
-	info := &types.DatabaseLockInfo{}
-
-	// Check if file exists first
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return nil, nil
-	}
-
-	// Try to open the file with exclusive access
-	file, err := os.OpenFile(filePath, os.O_RDONLY, 0)
-	if err != nil {
-		if os.IsPermission(err) {
-			info.IsLocked = true
-			info.LockType = "File permission lock"
-			info.ProcessInfo = "File is locked by another process"
-			return info, nil
-		}
-		return info, err
-	}
-	defer file.Close()
-
-	// Try to get an exclusive lock (Unix-specific)
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		if err == syscall.EWOULDBLOCK {
-			info.IsLocked = true
-			info.LockType = "File lock (flock)"
-			info.ProcessInfo = "File is locked by another process"
-			return info, nil
-		}
-	} else {
-		// Release the lock
-		if unlockErr := syscall.Flock(int(file.Fd()), syscall.LOCK_UN); unlockErr != nil {
-			// Log error but continue
-		}
 	}
 
 	return info, nil

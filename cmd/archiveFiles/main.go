@@ -137,9 +137,9 @@ func main() {
 	progressTracker.Init(len(allDatabases), totalSize)
 
 	// Create backup directory
-	backupPath := cfg.BackupPath
+	backupPath := utils.ReplaceDateVars(cfg.BackupPath)
 	if backupPath == "" {
-		backupPath = fmt.Sprintf("backup_%d", time.Now().Unix())
+		backupPath = utils.ReplaceDateVars(fmt.Sprintf("backup_%d", time.Now().Unix()))
 	}
 
 	if err := os.MkdirAll(backupPath, 0755); err != nil {
@@ -204,9 +204,9 @@ func main() {
 
 	// Compress backup if requested
 	if cfg.Compress {
-		archivePath := cfg.ArchivePath
+		archivePath := utils.ReplaceDateVars(cfg.ArchivePath)
 		if archivePath == "" {
-			archivePath = fmt.Sprintf("%s.tar.gz", backupPath)
+			archivePath = utils.ReplaceDateVars(fmt.Sprintf("%s.tar.gz", backupPath))
 		}
 
 		if cfg.ShowProgress {

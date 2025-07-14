@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -145,4 +146,12 @@ func BytesEqual(a, b []byte) bool {
 		}
 	}
 	return true
+}
+
+// ReplaceDateVars 替换 $(date +%Y%m%d_%H%M%S) 为当前时间戳
+func ReplaceDateVars(s string) string {
+	pattern := regexp.MustCompile(`\$\(\s*date \+%Y%m%d_%H%M%S\s*\)`)
+	return pattern.ReplaceAllStringFunc(s, func(_ string) string {
+		return time.Now().Format("20060102_150405")
+	})
 }
