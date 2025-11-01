@@ -1,6 +1,14 @@
 package types
 
-import "time"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"archiveFiles/internal/constants"
+)
 
 // DatabaseType represents the type of database
 type DatabaseType int
@@ -50,6 +58,9 @@ type Config struct {
 	Filter            string   `json:"filter"`             // Filter pattern for source paths
 	CompressionFormat string   `json:"compression_format"` // Compression format for archived files
 	Verify            bool     `json:"verify"`             // Verify backup data against source
+	Workers           int      `json:"workers"`            // Number of concurrent backup workers (0 = auto)
+	Strict            bool     `json:"strict"`             // Strict mode: fail on any error instead of continuing
+	DryRun            bool     `json:"dry_run"`            // Dry run mode: simulate actions without executing them
 }
 
 // DatabaseLockInfo contains information about database locks
@@ -67,4 +78,121 @@ type BackupProgress struct {
 	ProcessedSize  int64
 	TotalSize      int64
 	StartTime      time.Time
+}
+
+// Validate validates the configuration and returns an error if invalid
+func (c *Config) Validate() error {
+	// Validate source paths
+	if len(c.SourcePaths) == 0 {
+		return fmt.Errorf("no source paths specified")
+	}
+
+	for _, sourcePath := range c.SourcePaths {
+		if sourcePath == "" {
+			return fmt.Errorf("empty source path not allowed")
+		}
+
+		// Security: Check for path traversal attempts
+		if err := validatePathSecurity(sourcePath); err != nil {
+			return fmt.Errorf("invalid source path %s: %v", sourcePath, err)
+		}
+
+		// Check if path exists
+		if _, err := os.Stat(sourcePath); err != nil {
+			return fmt.Errorf("source path does not exist: %s", sourcePath)
+		}
+	}
+
+	// Validate backup path
+	if c.BackupPath != "" {
+		if err := validatePathSecurity(c.BackupPath); err != nil {
+			return fmt.Errorf("invalid backup path: %v", err)
+		}
+	}
+
+	// Validate archive path
+	if c.ArchivePath != "" {
+		if err := validatePathSecurity(c.ArchivePath); err != nil {
+			return fmt.Errorf("invalid archive path: %v", err)
+		}
+	}
+
+	// Validate backup method
+	validMethods := []string{
+		constants.MethodCheckpoint,
+		constants.MethodBackup,
+		constants.MethodCopy,
+		constants.MethodCopyFiles,
+	}
+	if !contains(validMethods, c.Method) {
+		return fmt.Errorf("invalid backup method: %s (valid: %s)", c.Method, strings.Join(validMethods, ", "))
+	}
+
+	// Validate compression format
+	validFormats := []string{"gzip", "zstd", "lz4"}
+	if c.Compress && !contains(validFormats, c.CompressionFormat) {
+		return fmt.Errorf("invalid compression format: %s (valid: %s)", c.CompressionFormat, strings.Join(validFormats, ", "))
+	}
+
+	// Validate workers
+	if c.Workers < 0 {
+		return fmt.Errorf("workers must be >= 0 (got %d)", c.Workers)
+	}
+	if c.Workers > 256 {
+		return fmt.Errorf("workers must be <= 256 (got %d, unreasonably high)", c.Workers)
+	}
+
+	return nil
+}
+
+// validatePathSecurity checks for path traversal and other security issues
+func validatePathSecurity(path string) error {
+	if path == "" {
+		return fmt.Errorf("empty path not allowed")
+	}
+
+	// Check for null bytes
+	if strings.Contains(path, "\x00") {
+		return fmt.Errorf("path contains null bytes")
+	}
+
+	// Clean the path first
+	cleaned := filepath.Clean(path)
+
+	// Check for excessive path traversal (suspicious pattern)
+	// Multiple ".." components are allowed but excessive ones are suspicious
+	components := strings.Split(cleaned, string(filepath.Separator))
+	dotDotCount := 0
+	for _, comp := range components {
+		if comp == ".." {
+			dotDotCount++
+			if dotDotCount > 3 {
+				return fmt.Errorf("excessive path traversal detected (too many '..' components)")
+			}
+		}
+	}
+
+	// Check for absolute paths trying to access system directories
+	// This is a warning, not an error, as absolute paths might be legitimate
+	dangerousRoots := []string{"/etc", "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/boot", "/sys", "/proc"}
+	absPath, err := filepath.Abs(cleaned)
+	if err == nil {
+		for _, dangerous := range dangerousRoots {
+			if strings.HasPrefix(absPath, dangerous) {
+				return fmt.Errorf("accessing system directory %s is not allowed", dangerous)
+			}
+		}
+	}
+
+	return nil
+}
+
+// contains checks if a string slice contains a value
+func contains(slice []string, value string) bool {
+	for _, item := range slice {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }

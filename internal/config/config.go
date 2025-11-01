@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"archiveFiles/internal/constants"
 	"archiveFiles/internal/types"
 )
 
@@ -32,7 +33,7 @@ func SaveConfigToJSON(config *types.Config, filename string) error {
 		return fmt.Errorf("failed to marshal config to JSON: %v", err)
 	}
 
-	err = os.WriteFile(filename, data, 0644)
+	err = os.WriteFile(filename, data, constants.FilePermission)
 	if err != nil {
 		return fmt.Errorf("failed to write config file %s: %v", filename, err)
 	}
@@ -43,13 +44,14 @@ func SaveConfigToJSON(config *types.Config, filename string) error {
 // GetDefaultConfig returns a configuration with sensible defaults
 func GetDefaultConfig() *types.Config {
 	return &types.Config{
-		Method:            "checkpoint",
+		Method:            constants.MethodCheckpoint,
 		Compress:          true,
 		RemoveBackup:      true,
 		BatchMode:         false,
-		ShowProgress:      true,
-		CompressionFormat: "gzip",
+		ShowProgress:      constants.DefaultProgressEnabled,
+		CompressionFormat: constants.DefaultCompressionFormat,
 		Verify:            false,
+		Workers:           constants.DefaultWorkersAuto,
 	}
 }
 
@@ -110,6 +112,11 @@ func MergeConfigs(jsonConfig *types.Config, flagConfig *types.Config) *types.Con
 		merged.ShowProgress = flagConfig.ShowProgress
 	}
 
+	// Override Workers if explicitly set (0 is valid for auto)
+	if flagConfig.Workers >= 0 {
+		merged.Workers = flagConfig.Workers
+	}
+
 	return &merged
 }
 
@@ -164,16 +171,17 @@ func GenerateDefaultConfigFile() error {
 		SourcePaths:       []string{"./data", "./databases"},
 		BackupPath:        "backup_$(date +%Y%m%d_%H%M%S)",
 		ArchivePath:       "archive_$(date +%Y%m%d_%H%M%S).tar.gz",
-		Method:            "checkpoint",
+		Method:            constants.MethodCheckpoint,
 		Compress:          true,
 		RemoveBackup:      true,
 		BatchMode:         true,
-		IncludePattern:    "*.db,*.sqlite,*.sqlite3,*.log",
-		ExcludePattern:    "*temp*,*cache*,*.tmp",
-		ShowProgress:      true,
+		IncludePattern:    constants.DefaultIncludePattern,
+		ExcludePattern:    constants.DefaultExcludePattern,
+		ShowProgress:      constants.DefaultProgressEnabled,
 		Filter:            "",
-		CompressionFormat: "gzip",
+		CompressionFormat: constants.DefaultCompressionFormat,
 		Verify:            false,
+		Workers:           constants.DefaultWorkersAuto,
 	}
 
 	err := SaveConfigToJSON(defaultConfig, configPath)

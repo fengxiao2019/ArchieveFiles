@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"archiveFiles/internal/constants"
 	"archiveFiles/internal/progress"
 	"archiveFiles/internal/utils"
 
@@ -138,23 +139,10 @@ func CopyDatabaseData(sourceDBPath, targetDBPath string, progressTracker *progre
 	}
 	defer sourceDB.Close()
 
-	// First pass: count total records for progress tracking
-	var totalRecords int64
+	// Optimization: Use single pass instead of counting first
+	// Progress will be updated incrementally as we copy records
 	readOpts := grocksdb.NewDefaultReadOptions()
 	defer readOpts.Destroy()
-
-	countIter := sourceDB.NewIterator(readOpts)
-	defer countIter.Close()
-
-	for countIter.SeekToFirst(); countIter.Valid(); countIter.Next() {
-		totalRecords++
-		key := countIter.Key()
-		key.Free()
-	}
-
-	if err := countIter.Err(); err != nil {
-		return fmt.Errorf("failed to count records: %v", err)
-	}
 
 	// create target database
 	targetOpts := grocksdb.NewDefaultOptions()
@@ -178,31 +166,44 @@ func CopyDatabaseData(sourceDBPath, targetDBPath string, progressTracker *progre
 	writeOpts := grocksdb.NewDefaultWriteOptions()
 	defer writeOpts.Destroy()
 
-	batchSize := 1000
 	var count int64
 
-	// iterate all data
+	// iterate all data (single pass optimization)
 	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+		// Safely extract key and value with immediate cleanup
 		key := iter.Key()
 		value := iter.Value()
 
-		writeBatch.Put(key.Data(), value.Data())
+		// Copy data before freeing (safer approach)
+		keyData := make([]byte, len(key.Data()))
+		valueData := make([]byte, len(value.Data()))
+		copy(keyData, key.Data())
+		copy(valueData, value.Data())
+
+		// Free immediately after copying to prevent leaks
+		key.Free()
+		value.Free()
+
+		// Now use the copied data
+		writeBatch.Put(keyData, valueData)
 		count++
 
-		// write batch and update progress
-		if count%int64(batchSize) == 0 {
+		// write batch periodically
+		if count%constants.RocksDBWriteBatchSize == 0 {
 			err = targetDB.Write(writeOpts, writeBatch)
 			if err != nil {
-				key.Free()
-				value.Free()
+				// No need to free key/value here - already freed above
 				return fmt.Errorf("failed to write batch: %v", err)
 			}
 			writeBatch.Clear()
-			progressTracker.UpdateRocksDBProgress(count, totalRecords)
 		}
 
-		key.Free()
-		value.Free()
+		// update progress less frequently (performance optimization)
+		if count%constants.RocksDBProgressUpdateInterval == 0 {
+			// Use 0 as total to indicate we don't know the total
+			// This will display "Copied N records" instead of percentage
+			progressTracker.UpdateRocksDBProgress(count, 0)
+		}
 	}
 
 	// Write remaining records
@@ -217,8 +218,11 @@ func CopyDatabaseData(sourceDBPath, targetDBPath string, progressTracker *progre
 		return fmt.Errorf("error during iteration: %v", err)
 	}
 
-	progressTracker.UpdateRocksDBProgress(totalRecords, totalRecords)
+	// Final progress update with actual count
+	progressTracker.UpdateRocksDBProgress(count, count)
 	progressTracker.CompleteItem(utils.CalculateSize(targetDBPath))
+
+	log.Printf("✅ Copied %d records from %s", count, sourceDBPath)
 	return nil
 }
 
@@ -227,7 +231,7 @@ func BackupRocksDBFiles(sourceDBPath, targetDBPath string, progressTracker *prog
 	progressTracker.SetCurrentFile(fmt.Sprintf("Copying RocksDB files from %s", sourceDBPath))
 
 	// Create target directory
-	if err := os.MkdirAll(targetDBPath, 0755); err != nil {
+	if err := os.MkdirAll(targetDBPath, constants.DirPermission); err != nil {
 		return fmt.Errorf("failed to create target directory: %v", err)
 	}
 

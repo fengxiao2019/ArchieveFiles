@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"archiveFiles/internal/constants"
 	"archiveFiles/internal/discovery"
 	"archiveFiles/internal/progress"
 	"archiveFiles/internal/types"
@@ -67,7 +68,7 @@ func ProcessRocksDB(sourceDBPath, targetDBPath, method string, progressTracker *
 // ProcessSQLiteDB processes a SQLite database
 func ProcessSQLiteDB(sourceDBPath, targetPath string) error {
 	// Create target directory
-	if err := os.MkdirAll(targetPath, 0755); err != nil {
+	if err := os.MkdirAll(targetPath, constants.DirPermission); err != nil {
 		return fmt.Errorf("failed to create target directory: %v", err)
 	}
 
@@ -79,7 +80,7 @@ func ProcessSQLiteDB(sourceDBPath, targetPath string) error {
 // ProcessLogFile processes a log file by copying it to the target path
 func ProcessLogFile(sourceLogPath, targetPath string) error {
 	// Create target directory
-	if err := os.MkdirAll(targetPath, 0755); err != nil {
+	if err := os.MkdirAll(targetPath, constants.DirPermission); err != nil {
 		return fmt.Errorf("failed to create target directory: %v", err)
 	}
 
@@ -88,14 +89,10 @@ func ProcessLogFile(sourceLogPath, targetPath string) error {
 	return utils.CopyFile(sourceLogPath, targetFile)
 }
 
-// CopySQLiteDatabase copies a SQLite database file
+// CopySQLiteDatabase copies a SQLite database file using simple file copy
+// For locked databases, use SafeCopySQLiteDatabase instead
 func CopySQLiteDatabase(sourcePath, targetPath string) error {
 	return utils.CopyFile(sourcePath, targetPath)
-}
-
-// SafeCopySQLiteDatabase performs a safe copy of a SQLite database
-func SafeCopySQLiteDatabase(sourcePath, targetPath string) error {
-	return fmt.Errorf("SafeCopySQLiteDatabase not implemented yet - will be in internal/backup/sqlite.go")
 }
 
 // safeBackupLockedRocksDB performs a safe backup of a locked RocksDB
@@ -149,7 +146,7 @@ func safeBackupLockedSQLite(sourceDBPath, targetPath string, progressTracker *pr
 	progressTracker.SetCurrentFile(fmt.Sprintf("Safe backup of locked SQLite: %s", sourceDBPath))
 
 	// Create target directory
-	if err := os.MkdirAll(targetPath, 0755); err != nil {
+	if err := os.MkdirAll(targetPath, constants.DirPermission); err != nil {
 		return fmt.Errorf("failed to create target directory: %v", err)
 	}
 

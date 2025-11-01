@@ -39,6 +39,7 @@ func DiscoverDatabases(config *types.Config, sourcePath string) ([]types.Databas
 			Path: sourcePath,
 			Type: dbType,
 			Name: filepath.Base(sourcePath),
+			Size: info.Size(), // Single file size is already known
 		})
 
 		return databases, nil
@@ -52,6 +53,7 @@ func DiscoverDatabases(config *types.Config, sourcePath string) ([]types.Databas
 			Path: sourcePath,
 			Type: dbType,
 			Name: filepath.Base(sourcePath),
+			Size: utils.CalculateSize(sourcePath), // Calculate size once during discovery
 		})
 
 		return databases, nil
@@ -85,10 +87,19 @@ func DiscoverDatabases(config *types.Config, sourcePath string) ([]types.Databas
 			relPath = filepath.Base(path)
 		}
 
+		// Calculate size: for files use info.Size(), for directories calculate full size
+		var size int64
+		if info.IsDir() {
+			size = utils.CalculateSize(path)
+		} else {
+			size = info.Size()
+		}
+
 		databases = append(databases, types.DatabaseInfo{
 			Path: path,
 			Type: dbType,
 			Name: strings.ReplaceAll(relPath, string(filepath.Separator), "_"),
+			Size: size, // Size calculated during discovery
 		})
 
 		// If this is a RocksDB directory, don't walk into it

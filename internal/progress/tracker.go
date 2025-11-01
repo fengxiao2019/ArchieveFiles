@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"archiveFiles/internal/constants"
 	"archiveFiles/internal/utils"
 )
 
@@ -103,15 +104,14 @@ func (p *ProgressTracker) displayProgress() {
 	}
 
 	// Create progress bar
-	barWidth := 40
-	filled := int(percentage / 100 * float64(barWidth))
+	filled := int(percentage / 100 * float64(constants.ProgressBarWidth))
 	if filled < 0 {
 		filled = 0
 	}
-	if filled > barWidth {
-		filled = barWidth
+	if filled > constants.ProgressBarWidth {
+		filled = constants.ProgressBarWidth
 	}
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", constants.ProgressBarWidth-filled)
 
 	// Format output
 	fmt.Printf("\r[%s] %.1f%% (%d/%d) | %s | %s",
@@ -128,7 +128,7 @@ func (p *ProgressTracker) displayProgress() {
 	}
 
 	if p.currentFile != "" {
-		fmt.Printf(" | %s", utils.TruncateString(p.currentFile, 30))
+		fmt.Printf(" | %s", utils.TruncateString(p.currentFile, constants.ProgressFileNameMaxLength))
 	}
 
 	fmt.Print("   ") // Clear any remaining characters
@@ -147,15 +147,14 @@ func (p *ProgressTracker) displayRocksDBProgress(processed, total int64) {
 	}
 
 	// Create progress bar
-	barWidth := 40
-	filled := int(percentage / 100 * float64(barWidth))
+	filled := int(percentage / 100 * float64(constants.ProgressBarWidth))
 	if filled < 0 {
 		filled = 0
 	}
-	if filled > barWidth {
-		filled = barWidth
+	if filled > constants.ProgressBarWidth {
+		filled = constants.ProgressBarWidth
 	}
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", constants.ProgressBarWidth-filled)
 
 	fmt.Printf("\r  [%s] %.1f%% (%d/%d records) | %s | %s   ",
 		bar,

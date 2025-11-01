@@ -1,22 +1,29 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"archiveFiles/internal/backup"
 	"archiveFiles/internal/compress"
 	"archiveFiles/internal/config"
+	"archiveFiles/internal/constants"
 	"archiveFiles/internal/discovery"
 	"archiveFiles/internal/progress"
 	"archiveFiles/internal/restore"
 	"archiveFiles/internal/types"
 	"archiveFiles/internal/utils"
+	"archiveFiles/internal/verify"
 )
 
 func main() {
@@ -86,6 +93,28 @@ func main() {
 	// Parse configuration
 	cfg := parseFlags()
 
+	// Set up context with cancellation support
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle interrupt signals for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		log.Printf("\n⚠️  Received signal %v, initiating graceful shutdown...", sig)
+		cancel()
+	}()
+
+	// Log operational mode
+	if cfg.DryRun {
+		log.Printf("🔍 DRY RUN MODE: No actual changes will be made")
+	}
+	if cfg.Strict {
+		log.Printf("⚠️  STRICT MODE: Will fail immediately on any error")
+	}
+
 	log.Printf("Starting database archival process...")
 	log.Printf("Sources: %v", cfg.SourcePaths)
 	log.Printf("Method: %s", cfg.Method)
@@ -113,10 +142,9 @@ func main() {
 			continue
 		}
 
-		// Add source root information and calculate sizes
+		// Add source root information (size is already calculated during discovery)
 		for i := range databases {
 			databases[i].SourceRoot = sourcePath
-			databases[i].Size = utils.CalculateSize(databases[i].Path)
 		}
 
 		allDatabases = append(allDatabases, databases...)
@@ -142,57 +170,37 @@ func main() {
 		backupPath = utils.ReplaceDateVars(fmt.Sprintf("backup_%d", time.Now().Unix()))
 	}
 
-	if err := os.MkdirAll(backupPath, 0755); err != nil {
-		log.Fatalf("Failed to create backup directory: %v", err)
+	if cfg.DryRun {
+		log.Printf("[DRY RUN] Would create backup directory: %s", backupPath)
+	} else {
+		if err := os.MkdirAll(backupPath, constants.DirPermission); err != nil {
+			log.Fatalf("Failed to create backup directory: %v", err)
+		}
 	}
 
-	// Process each database/file
-	for _, db := range allDatabases {
-		if cfg.ShowProgress {
-			progressTracker.SetCurrentFile(db.Name)
-		} else {
-			log.Printf("Processing %s (%s)...", db.Name, db.Type.String())
-		}
+	// Determine number of workers
+	workers := cfg.Workers
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
 
-		// Create a subdirectory structure to avoid name collisions
-		sourceBaseName := filepath.Base(db.SourceRoot)
-		if sourceBaseName == "." || sourceBaseName == "" {
-			sourceBaseName = "root"
-		}
+	// Cap workers at reasonable maximum
+	if workers > len(allDatabases) {
+		workers = len(allDatabases)
+	}
 
-		dbBackupPath := filepath.Join(backupPath, sourceBaseName, db.Name)
-		var err error
+	if workers > 1 {
+		log.Printf("Using %d concurrent workers for backup", workers)
+	}
 
-		// Ensure the parent directory exists
-		parentDir := filepath.Dir(dbBackupPath)
-		if err := os.MkdirAll(parentDir, 0755); err != nil {
-			log.Printf("Failed to create parent directory %s: %v", parentDir, err)
-			continue
-		}
+	// Process databases with worker pool
+	processDatabasesConcurrently(ctx, allDatabases, backupPath, cfg, progressTracker, workers)
 
-		// Use safe backup method that handles locked databases
-		err = backup.SafeBackupDatabase(db, dbBackupPath, cfg.Method, progressTracker)
-
-		if err != nil {
-			if !cfg.ShowProgress {
-				log.Printf("Failed to process %s: %v", db.Name, err)
-			}
-			progressTracker.CompleteItem(0) // Still count as processed for progress
-			continue
-		}
-
-		// TODO: Implement verification if requested
-		// if cfg.Verify {
-		//     err = verifyBackup(db, dbBackupPath, progressTracker)
-		//     if err != nil {
-		//         log.Printf("❌ Verification failed for %s: %v", db.Name, err)
-		//     }
-		// }
-
-		progressTracker.CompleteItem(db.Size)
-		if !cfg.ShowProgress {
-			log.Printf("Successfully processed %s", db.Name)
-		}
+	// Check if context was cancelled
+	if ctx.Err() != nil {
+		log.Printf("⚠️  Backup was cancelled: %v", ctx.Err())
+		log.Printf("Partial backup may exist at: %s", backupPath)
+		os.Exit(130) // Exit code 130 for Ctrl+C
 	}
 
 	// Finish progress tracking
@@ -209,24 +217,31 @@ func main() {
 			archivePath = utils.ReplaceDateVars(fmt.Sprintf("%s.tar.gz", backupPath))
 		}
 
-		if cfg.ShowProgress {
-			log.Printf("Creating compressed archive...")
-		}
+		if cfg.DryRun {
+			log.Printf("[DRY RUN] Would create compressed archive: %s", archivePath)
+			if cfg.RemoveBackup {
+				log.Printf("[DRY RUN] Would remove backup directory: %s", backupPath)
+			}
+		} else {
+			if cfg.ShowProgress {
+				log.Printf("Creating compressed archive...")
+			}
 
-		err := compress.CompressDirectory(backupPath, archivePath)
-		if err != nil {
-			log.Fatalf("Failed to compress backup: %v", err)
-		}
-
-		log.Printf("Archive created successfully at: %s", archivePath)
-
-		// Remove original backup directory
-		if cfg.RemoveBackup {
-			err = os.RemoveAll(backupPath)
+			err := compress.CompressDirectory(backupPath, archivePath)
 			if err != nil {
-				log.Printf("Warning: Failed to remove backup directory: %v", err)
-			} else {
-				log.Printf("Backup directory removed: %s", backupPath)
+				log.Fatalf("Failed to compress backup: %v", err)
+			}
+
+			log.Printf("Archive created successfully at: %s", archivePath)
+
+			// Remove original backup directory
+			if cfg.RemoveBackup {
+				err = os.RemoveAll(backupPath)
+				if err != nil {
+					log.Printf("Warning: Failed to remove backup directory: %v", err)
+				} else {
+					log.Printf("Backup directory removed: %s", backupPath)
+				}
 			}
 		}
 	}
@@ -263,6 +278,9 @@ func parseFlags() *types.Config {
 	flag.StringVar(&cfg.CompressionFormat, "compression", "gzip", "Compression format: gzip, zstd, lz4")
 	flag.BoolVar(&cfg.ShowProgress, "progress", true, "Show progress bar during archival")
 	flag.BoolVar(&cfg.Verify, "verify", false, "Verify backup data integrity against source")
+	flag.IntVar(&cfg.Workers, "workers", 0, "Number of concurrent backup workers (0 = auto, based on CPU cores)")
+	flag.BoolVar(&cfg.Strict, "strict", false, "Strict mode: fail immediately on any error instead of continuing")
+	flag.BoolVar(&cfg.DryRun, "dry-run", false, "Dry run mode: simulate actions without actually executing them")
 
 	// Parse flags
 	flag.Parse()
@@ -321,5 +339,155 @@ func parseFlags() *types.Config {
 		}
 	}
 
+	// Validate configuration
+	if err := finalConfig.Validate(); err != nil {
+		log.Fatalf("Configuration validation failed: %v", err)
+	}
+
 	return finalConfig
+}
+
+// processDatabasesConcurrently processes databases using a worker pool for concurrent backup
+func processDatabasesConcurrently(ctx context.Context, databases []types.DatabaseInfo, backupPath string, cfg *types.Config, progressTracker *progress.ProgressTracker, workers int) {
+	// Create job channel and error collection
+	jobs := make(chan types.DatabaseInfo, len(databases))
+	var wg sync.WaitGroup
+	var errorsMu sync.Mutex
+	errors := make(map[string]error)
+
+	// Start worker pool
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for db := range jobs {
+				// Check if context was cancelled before processing
+				select {
+				case <-ctx.Done():
+					log.Printf("Worker %d stopping due to cancellation", workerID)
+					return
+				default:
+					processDatabase(ctx, db, backupPath, cfg, progressTracker, &errorsMu, errors)
+				}
+			}
+		}(w)
+	}
+
+	// Send jobs to workers, respecting context cancellation
+	go func() {
+		for _, db := range databases {
+			select {
+			case <-ctx.Done():
+				close(jobs)
+				return
+			case jobs <- db:
+			}
+		}
+		close(jobs)
+	}()
+
+	// Wait for all workers to complete
+	wg.Wait()
+
+	// Report errors if any
+	if len(errors) > 0 {
+		log.Printf("⚠️  %d database(s) failed to backup:", len(errors))
+		for name, err := range errors {
+			log.Printf("  - %s: %v", name, err)
+		}
+
+		// In strict mode, exit with error if any database failed
+		if cfg.Strict {
+			log.Fatalf("Backup failed in strict mode due to errors")
+		}
+	}
+}
+
+// processDatabase processes a single database backup
+func processDatabase(ctx context.Context, db types.DatabaseInfo, backupPath string, cfg *types.Config, progressTracker *progress.ProgressTracker, errorsMu *sync.Mutex, errors map[string]error) {
+	// Check if context was cancelled before starting
+	select {
+	case <-ctx.Done():
+		errorsMu.Lock()
+		errors[db.Name] = fmt.Errorf("cancelled: %v", ctx.Err())
+		errorsMu.Unlock()
+		return
+	default:
+	}
+
+	// Update progress
+	if cfg.ShowProgress {
+		progressTracker.SetCurrentFile(db.Name)
+	} else {
+		if cfg.DryRun {
+			log.Printf("[DRY RUN] Would process %s (%s)...", db.Name, db.Type.String())
+		} else {
+			log.Printf("Processing %s (%s)...", db.Name, db.Type.String())
+		}
+	}
+
+	// Create a subdirectory structure to avoid name collisions
+	sourceBaseName := filepath.Base(db.SourceRoot)
+	if sourceBaseName == "." || sourceBaseName == "" {
+		sourceBaseName = "root"
+	}
+
+	dbBackupPath := filepath.Join(backupPath, sourceBaseName, db.Name)
+
+	// In dry-run mode, simulate the operation
+	if cfg.DryRun {
+		if !cfg.ShowProgress {
+			log.Printf("[DRY RUN] Would backup %s to %s using method: %s", db.Name, dbBackupPath, cfg.Method)
+		}
+		progressTracker.CompleteItem(db.Size)
+		return
+	}
+
+	// Ensure the parent directory exists
+	parentDir := filepath.Dir(dbBackupPath)
+	if err := os.MkdirAll(parentDir, constants.DirPermission); err != nil {
+		errorsMu.Lock()
+		errors[db.Name] = fmt.Errorf("failed to create parent directory: %v", err)
+		errorsMu.Unlock()
+		progressTracker.CompleteItem(0)
+		return
+	}
+
+	// Use safe backup method that handles locked databases
+	err := backup.SafeBackupDatabase(db, dbBackupPath, cfg.Method, progressTracker)
+
+	if err != nil {
+		if !cfg.ShowProgress {
+			log.Printf("Failed to process %s: %v", db.Name, err)
+		}
+		errorsMu.Lock()
+		errors[db.Name] = err
+		errorsMu.Unlock()
+		progressTracker.CompleteItem(0) // Still count as processed for progress
+		return
+	}
+
+	// Verify backup if requested
+	if cfg.Verify {
+		err = verify.VerifyBackup(db, dbBackupPath, progressTracker)
+		if err != nil {
+			if !cfg.ShowProgress {
+				log.Printf("❌ Verification failed for %s: %v", db.Name, err)
+			}
+			errorsMu.Lock()
+			errors[db.Name] = fmt.Errorf("verification failed: %v", err)
+			errorsMu.Unlock()
+			progressTracker.CompleteItem(db.Size)
+			return
+		} else {
+			if !cfg.ShowProgress {
+				log.Printf("✓ Verification passed for %s", db.Name)
+			}
+		}
+	}
+
+	progressTracker.CompleteItem(db.Size)
+	if !cfg.ShowProgress {
+		log.Printf("Successfully processed %s", db.Name)
+	}
 }

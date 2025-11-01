@@ -1,7 +1,12 @@
 package types
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"archiveFiles/internal/constants"
 )
 
 func TestDatabaseType_String(t *testing.T) {
@@ -120,4 +125,281 @@ func TestDatabaseType_Constants(t *testing.T) {
 	if DatabaseTypeUnknown != 3 {
 		t.Errorf("Expected DatabaseTypeUnknown to be 3, got %d", DatabaseTypeUnknown)
 	}
+}
+
+func TestConfig_Validate(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir := t.TempDir()
+	sourceDir := filepath.Join(tempDir, "source")
+	if err := os.MkdirAll(sourceDir, 0755); err != nil {
+		t.Fatalf("Failed to create temp source dir: %v", err)
+	}
+
+	t.Run("Valid configuration", func(t *testing.T) {
+		cfg := &Config{
+			SourcePaths:       []string{sourceDir},
+			BackupPath:        filepath.Join(tempDir, "backup"),
+			ArchivePath:       filepath.Join(tempDir, "archive.tar.gz"),
+			Method:            constants.MethodCheckpoint,
+			Compress:          true,
+			CompressionFormat: "gzip",
+			Workers:           4,
+		}
+
+		err := cfg.Validate()
+		if err != nil {
+			t.Errorf("Expected valid config to pass validation, got error: %v", err)
+		}
+	})
+
+	t.Run("Empty source paths", func(t *testing.T) {
+		cfg := &Config{
+			SourcePaths: []string{},
+			Method:      constants.MethodCheckpoint,
+		}
+
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("Expected error for empty source paths")
+		}
+		if !strings.Contains(err.Error(), "no source paths") {
+			t.Errorf("Expected error about no source paths, got: %v", err)
+		}
+	})
+
+	t.Run("Empty string in source paths", func(t *testing.T) {
+		cfg := &Config{
+			SourcePaths: []string{""},
+			Method:      constants.MethodCheckpoint,
+		}
+
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("Expected error for empty source path string")
+		}
+		if !strings.Contains(err.Error(), "empty source path") {
+			t.Errorf("Expected error about empty source path, got: %v", err)
+		}
+	})
+
+	t.Run("Non-existent source path", func(t *testing.T) {
+		cfg := &Config{
+			SourcePaths: []string{filepath.Join(tempDir, "nonexistent")},
+			Method:      constants.MethodCheckpoint,
+		}
+
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("Expected error for non-existent source path")
+		}
+		if !strings.Contains(err.Error(), "does not exist") {
+			t.Errorf("Expected error about path not existing, got: %v", err)
+		}
+	})
+
+	t.Run("Invalid backup method", func(t *testing.T) {
+		cfg := &Config{
+			SourcePaths: []string{sourceDir},
+			Method:      "invalid-method",
+		}
+
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("Expected error for invalid backup method")
+		}
+		if !strings.Contains(err.Error(), "invalid backup method") {
+			t.Errorf("Expected error about invalid method, got: %v", err)
+		}
+	})
+
+	t.Run("Invalid compression format", func(t *testing.T) {
+		cfg := &Config{
+			SourcePaths:       []string{sourceDir},
+			Method:            constants.MethodCheckpoint,
+			Compress:          true,
+			CompressionFormat: "invalid-format",
+		}
+
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("Expected error for invalid compression format")
+		}
+		if !strings.Contains(err.Error(), "invalid compression format") {
+			t.Errorf("Expected error about invalid compression format, got: %v", err)
+		}
+	})
+
+	t.Run("Negative workers", func(t *testing.T) {
+		cfg := &Config{
+			SourcePaths: []string{sourceDir},
+			Method:      constants.MethodCheckpoint,
+			Workers:     -1,
+		}
+
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("Expected error for negative workers")
+		}
+		if !strings.Contains(err.Error(), "workers must be >= 0") {
+			t.Errorf("Expected error about workers >= 0, got: %v", err)
+		}
+	})
+
+	t.Run("Excessive workers", func(t *testing.T) {
+		cfg := &Config{
+			SourcePaths: []string{sourceDir},
+			Method:      constants.MethodCheckpoint,
+			Workers:     300,
+		}
+
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("Expected error for excessive workers")
+		}
+		if !strings.Contains(err.Error(), "workers must be <= 256") {
+			t.Errorf("Expected error about workers <= 256, got: %v", err)
+		}
+	})
+
+	t.Run("Valid workers values", func(t *testing.T) {
+		validWorkerCounts := []int{0, 1, 4, 8, 16, 32, 64, 128, 256}
+
+		for _, workers := range validWorkerCounts {
+			cfg := &Config{
+				SourcePaths: []string{sourceDir},
+				Method:      constants.MethodCheckpoint,
+				Workers:     workers,
+			}
+
+			err := cfg.Validate()
+			if err != nil {
+				t.Errorf("Expected workers=%d to be valid, got error: %v", workers, err)
+			}
+		}
+	})
+}
+
+func TestValidatePathSecurity(t *testing.T) {
+	t.Run("Valid paths", func(t *testing.T) {
+		validPaths := []string{
+			"./data",
+			"../backup",
+			"/tmp/backup",
+			"/home/user/data",
+			"data/databases",
+			"./data/../backup", // Resolves to ./backup
+		}
+
+		for _, path := range validPaths {
+			err := validatePathSecurity(path)
+			if err != nil {
+				t.Errorf("Expected path %q to be valid, got error: %v", path, err)
+			}
+		}
+	})
+
+	t.Run("Empty path", func(t *testing.T) {
+		err := validatePathSecurity("")
+		if err == nil {
+			t.Error("Expected error for empty path")
+		}
+		if !strings.Contains(err.Error(), "empty path") {
+			t.Errorf("Expected error about empty path, got: %v", err)
+		}
+	})
+
+	t.Run("Path with null bytes", func(t *testing.T) {
+		err := validatePathSecurity("data\x00malicious")
+		if err == nil {
+			t.Error("Expected error for path with null bytes")
+		}
+		if !strings.Contains(err.Error(), "null bytes") {
+			t.Errorf("Expected error about null bytes, got: %v", err)
+		}
+	})
+
+	t.Run("Excessive path traversal", func(t *testing.T) {
+		err := validatePathSecurity("../../../../../../../../etc/passwd")
+		if err == nil {
+			t.Error("Expected error for excessive path traversal")
+		}
+		if !strings.Contains(err.Error(), "excessive path traversal") {
+			t.Errorf("Expected error about excessive traversal, got: %v", err)
+		}
+	})
+
+	t.Run("System directory access - /etc", func(t *testing.T) {
+		err := validatePathSecurity("/etc/passwd")
+		if err == nil {
+			t.Error("Expected error for accessing /etc")
+		}
+		if !strings.Contains(err.Error(), "system directory") {
+			t.Errorf("Expected error about system directory, got: %v", err)
+		}
+	})
+
+	t.Run("System directory access - /bin", func(t *testing.T) {
+		err := validatePathSecurity("/bin/bash")
+		if err == nil {
+			t.Error("Expected error for accessing /bin")
+		}
+		if !strings.Contains(err.Error(), "system directory") {
+			t.Errorf("Expected error about system directory, got: %v", err)
+		}
+	})
+
+	t.Run("System directory access - /usr/bin", func(t *testing.T) {
+		err := validatePathSecurity("/usr/bin/ls")
+		if err == nil {
+			t.Error("Expected error for accessing /usr/bin")
+		}
+		if !strings.Contains(err.Error(), "system directory") {
+			t.Errorf("Expected error about system directory, got: %v", err)
+		}
+	})
+
+	t.Run("Safe /tmp and /home paths", func(t *testing.T) {
+		safePaths := []string{
+			"/tmp/backup",
+			"/home/user/backup",
+			"/var/tmp/data",
+		}
+
+		for _, path := range safePaths {
+			err := validatePathSecurity(path)
+			if err != nil {
+				t.Errorf("Expected path %q to be safe, got error: %v", path, err)
+			}
+		}
+	})
+}
+
+func TestContains(t *testing.T) {
+	t.Run("Contains value", func(t *testing.T) {
+		slice := []string{"apple", "banana", "cherry"}
+		if !contains(slice, "banana") {
+			t.Error("Expected contains to return true for 'banana'")
+		}
+	})
+
+	t.Run("Does not contain value", func(t *testing.T) {
+		slice := []string{"apple", "banana", "cherry"}
+		if contains(slice, "orange") {
+			t.Error("Expected contains to return false for 'orange'")
+		}
+	})
+
+	t.Run("Empty slice", func(t *testing.T) {
+		slice := []string{}
+		if contains(slice, "apple") {
+			t.Error("Expected contains to return false for empty slice")
+		}
+	})
+
+	t.Run("Case sensitive", func(t *testing.T) {
+		slice := []string{"Apple", "Banana", "Cherry"}
+		if contains(slice, "apple") {
+			t.Error("Expected contains to be case-sensitive")
+		}
+	})
 }
