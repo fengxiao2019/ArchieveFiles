@@ -52,6 +52,8 @@ func GetDefaultConfig() *types.Config {
 		CompressionFormat: constants.DefaultCompressionFormat,
 		Verify:            false,
 		Workers:           constants.DefaultWorkersAuto,
+		LogLevel:          "info",
+		ColorLog:          true,
 	}
 }
 

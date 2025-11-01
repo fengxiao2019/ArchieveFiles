@@ -61,6 +61,8 @@ type Config struct {
 	Workers           int      `json:"workers"`            // Number of concurrent backup workers (0 = auto)
 	Strict            bool     `json:"strict"`             // Strict mode: fail on any error instead of continuing
 	DryRun            bool     `json:"dry_run"`            // Dry run mode: simulate actions without executing them
+	LogLevel          string   `json:"log_level"`          // Log level: debug, info, warning, error (default: info)
+	ColorLog          bool     `json:"color_log"`          // Enable colored log output (default: true)
 }
 
 // DatabaseLockInfo contains information about database locks
@@ -140,6 +142,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Workers > 256 {
 		return fmt.Errorf("workers must be <= 256 (got %d, unreasonably high)", c.Workers)
+	}
+
+	// Validate log level
+	if c.LogLevel != "" {
+		validLevels := []string{"debug", "info", "warning", "error"}
+		if !contains(validLevels, strings.ToLower(c.LogLevel)) {
+			return fmt.Errorf("invalid log level: %s (valid: %s)", c.LogLevel, strings.Join(validLevels, ", "))
+		}
 	}
 
 	return nil

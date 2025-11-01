@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 	"archiveFiles/internal/config"
 	"archiveFiles/internal/constants"
 	"archiveFiles/internal/discovery"
+	"archiveFiles/internal/logger"
 	"archiveFiles/internal/progress"
 	"archiveFiles/internal/restore"
 	"archiveFiles/internal/types"
@@ -93,6 +93,9 @@ func main() {
 	// Parse configuration
 	cfg := parseFlags()
 
+	// Initialize logger with config settings
+	initLogger(cfg)
+
 	// Set up context with cancellation support
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -103,22 +106,22 @@ func main() {
 
 	go func() {
 		sig := <-sigChan
-		log.Printf("\nReceived signal %v, initiating graceful shutdown...", sig)
+		logger.Warning("\nReceived signal %v, initiating graceful shutdown...", sig)
 		cancel()
 	}()
 
 	// Log operational mode
 	if cfg.DryRun {
-		log.Printf("DRY RUN MODE: No actual changes will be made")
+		logger.Warning("DRY RUN MODE: No actual changes will be made")
 	}
 	if cfg.Strict {
-		log.Printf("STRICT MODE: Will fail immediately on any error")
+		logger.Warning("STRICT MODE: Will fail immediately on any error")
 	}
 
-	log.Printf("Starting database archival process...")
-	log.Printf("Sources: %v", cfg.SourcePaths)
-	log.Printf("Method: %s", cfg.Method)
-	log.Printf("Batch mode: %t", cfg.BatchMode)
+	logger.Info("Starting database archival process...")
+	logger.Info("Sources: %v", cfg.SourcePaths)
+	logger.Info("Method: %s", cfg.Method)
+	logger.Debug("Batch mode: %t", cfg.BatchMode)
 
 	// Create progress tracker
 	progressTracker := progress.NewProgressTracker(cfg.ShowProgress)
@@ -126,7 +129,7 @@ func main() {
 	// Discover databases from all source directories
 	allDatabases := []types.DatabaseInfo{}
 	for _, sourcePath := range cfg.SourcePaths {
-		log.Printf("Scanning source: %s", sourcePath)
+		logger.Info("Scanning source: %s", sourcePath)
 
 		// Create a temporary config for each source
 		sourceConfig := &types.Config{
@@ -138,7 +141,7 @@ func main() {
 
 		databases, err := discovery.DiscoverDatabases(sourceConfig, sourcePath)
 		if err != nil {
-			log.Printf("Warning: Failed to discover databases in %s: %v", sourcePath, err)
+			logger.Warning("Failed to discover databases in %s: %v", sourcePath, err)
 			continue
 		}
 
@@ -151,13 +154,13 @@ func main() {
 	}
 
 	if len(allDatabases) == 0 {
-		log.Fatal("No databases or files found to archive")
+		logger.Fatal("No databases or files found to archive")
 	}
 
-	log.Printf("Found %d item(s) to archive:", len(allDatabases))
+	logger.Info("Found %d item(s) to archive:", len(allDatabases))
 	var totalSize int64
 	for _, db := range allDatabases {
-		log.Printf("  - %s (%s) from %s [%s]", db.Name, db.Type.String(), db.SourceRoot, utils.FormatBytes(db.Size))
+		logger.Info("  - %s (%s) from %s [%s]", db.Name, db.Type.String(), db.SourceRoot, utils.FormatBytes(db.Size))
 		totalSize += db.Size
 	}
 
@@ -171,10 +174,10 @@ func main() {
 	}
 
 	if cfg.DryRun {
-		log.Printf("[DRY RUN] Would create backup directory: %s", backupPath)
+		logger.Info("[DRY RUN] Would create backup directory: %s", backupPath)
 	} else {
 		if err := os.MkdirAll(backupPath, constants.DirPermission); err != nil {
-			log.Fatalf("Failed to create backup directory: %v", err)
+			logger.Fatal("Failed to create backup directory: %v", err)
 		}
 	}
 
@@ -190,7 +193,7 @@ func main() {
 	}
 
 	if workers > 1 {
-		log.Printf("Using %d concurrent workers for backup", workers)
+		logger.Info("Using %d concurrent workers for backup", workers)
 	}
 
 	// Process databases with worker pool
@@ -198,8 +201,8 @@ func main() {
 
 	// Check if context was cancelled
 	if ctx.Err() != nil {
-		log.Printf("Backup was cancelled: %v", ctx.Err())
-		log.Printf("Partial backup may exist at: %s", backupPath)
+		logger.Warning("Backup was cancelled: %v", ctx.Err())
+		logger.Warning("Partial backup may exist at: %s", backupPath)
 		os.Exit(130) // Exit code 130 for Ctrl+C
 	}
 
@@ -208,7 +211,7 @@ func main() {
 		progressTracker.Finish()
 	}
 
-	log.Printf("Backup created successfully at: %s", backupPath)
+	logger.Info("Backup created successfully at: %s", backupPath)
 
 	// Compress backup if requested
 	if cfg.Compress {
@@ -218,35 +221,35 @@ func main() {
 		}
 
 		if cfg.DryRun {
-			log.Printf("[DRY RUN] Would create compressed archive: %s", archivePath)
+			logger.Info("[DRY RUN] Would create compressed archive: %s", archivePath)
 			if cfg.RemoveBackup {
-				log.Printf("[DRY RUN] Would remove backup directory: %s", backupPath)
+				logger.Info("[DRY RUN] Would remove backup directory: %s", backupPath)
 			}
 		} else {
 			if cfg.ShowProgress {
-				log.Printf("Creating compressed archive...")
+				logger.Info("Creating compressed archive...")
 			}
 
 			err := compress.CompressDirectory(backupPath, archivePath)
 			if err != nil {
-				log.Fatalf("Failed to compress backup: %v", err)
+				logger.Fatal("Failed to compress backup: %v", err)
 			}
 
-			log.Printf("Archive created successfully at: %s", archivePath)
+			logger.Info("Archive created successfully at: %s", archivePath)
 
 			// Remove original backup directory
 			if cfg.RemoveBackup {
 				err = os.RemoveAll(backupPath)
 				if err != nil {
-					log.Printf("Warning: Failed to remove backup directory: %v", err)
+					logger.Warning("Failed to remove backup directory: %v", err)
 				} else {
-					log.Printf("Backup directory removed: %s", backupPath)
+					logger.Info("Backup directory removed: %s", backupPath)
 				}
 			}
 		}
 	}
 
-	log.Printf("Archival process completed successfully!")
+	logger.Info("Archival process completed successfully!")
 }
 
 func parseFlags() *types.Config {
@@ -281,6 +284,8 @@ func parseFlags() *types.Config {
 	flag.IntVar(&cfg.Workers, "workers", 0, "Number of concurrent backup workers (0 = auto, based on CPU cores)")
 	flag.BoolVar(&cfg.Strict, "strict", false, "Strict mode: fail immediately on any error instead of continuing")
 	flag.BoolVar(&cfg.DryRun, "dry-run", false, "Dry run mode: simulate actions without actually executing them")
+	flag.StringVar(&cfg.LogLevel, "log-level", "info", "Log level: debug, info, warning, error")
+	flag.BoolVar(&cfg.ColorLog, "color-log", true, "Enable colored log output")
 
 	// Parse flags
 	flag.Parse()
@@ -289,7 +294,7 @@ func parseFlags() *types.Config {
 	if initConfig {
 		err := config.GenerateDefaultConfigFile()
 		if err != nil {
-			log.Fatalf("Failed to generate default config: %v", err)
+			logger.Fatal("Failed to generate default config: %v", err)
 		}
 		fmt.Println("Default configuration file 'archiveFiles.conf' created successfully!")
 		os.Exit(0)
@@ -298,7 +303,7 @@ func parseFlags() *types.Config {
 	if generateConfig != "" {
 		err := config.SaveConfigToJSON(cfg, generateConfig)
 		if err != nil {
-			log.Fatalf("Failed to generate config file: %v", err)
+			logger.Fatal("Failed to generate config file: %v", err)
 		}
 		fmt.Printf("Configuration file generated: %s\n", generateConfig)
 		os.Exit(0)
@@ -309,7 +314,7 @@ func parseFlags() *types.Config {
 	if configFile != "" {
 		loadedConfig, err := config.LoadConfigFromJSON(configFile)
 		if err != nil {
-			log.Fatalf("Failed to load config file: %v", err)
+			logger.Fatal("Failed to load config file: %v", err)
 		}
 		finalConfig = config.MergeConfigs(loadedConfig, cfg)
 	} else {
@@ -328,7 +333,7 @@ func parseFlags() *types.Config {
 
 	// Validate configuration
 	if len(finalConfig.SourcePaths) == 0 {
-		log.Fatal("No source paths specified. Use -source or -sources flag, or specify in config file.")
+		logger.Fatal("No source paths specified. Use -source or -sources flag, or specify in config file.")
 	}
 
 	// Auto-detect batch mode if any source is a directory
@@ -341,7 +346,7 @@ func parseFlags() *types.Config {
 
 	// Validate configuration
 	if err := finalConfig.Validate(); err != nil {
-		log.Fatalf("Configuration validation failed: %v", err)
+		logger.Fatal("Configuration validation failed: %v", err)
 	}
 
 	return finalConfig
@@ -364,7 +369,7 @@ func processDatabasesConcurrently(ctx context.Context, databases []types.Databas
 				// Check if context was cancelled before processing
 				select {
 				case <-ctx.Done():
-					log.Printf("Worker %d stopping due to cancellation", workerID)
+					logger.Debug("Worker %d stopping due to cancellation", workerID)
 					return
 				default:
 					processDatabase(ctx, db, backupPath, cfg, progressTracker, &errorsMu, errors)
@@ -391,14 +396,14 @@ func processDatabasesConcurrently(ctx context.Context, databases []types.Databas
 
 	// Report errors if any
 	if len(errors) > 0 {
-		log.Printf("%d database(s) failed to backup:", len(errors))
+		logger.Warning("%d database(s) failed to backup:", len(errors))
 		for name, err := range errors {
-			log.Printf("  - %s: %v", name, err)
+			logger.Error("  - %s: %v", name, err)
 		}
 
 		// In strict mode, exit with error if any database failed
 		if cfg.Strict {
-			log.Fatalf("Backup failed in strict mode due to errors")
+			logger.Fatal("Backup failed in strict mode due to errors")
 		}
 	}
 }
@@ -420,9 +425,9 @@ func processDatabase(ctx context.Context, db types.DatabaseInfo, backupPath stri
 		progressTracker.SetCurrentFile(db.Name)
 	} else {
 		if cfg.DryRun {
-			log.Printf("[DRY RUN] Would process %s (%s)...", db.Name, db.Type.String())
+			logger.Info("[DRY RUN] Would process %s (%s)...", db.Name, db.Type.String())
 		} else {
-			log.Printf("Processing %s (%s)...", db.Name, db.Type.String())
+			logger.Info("Processing %s (%s)...", db.Name, db.Type.String())
 		}
 	}
 
@@ -437,7 +442,7 @@ func processDatabase(ctx context.Context, db types.DatabaseInfo, backupPath stri
 	// In dry-run mode, simulate the operation
 	if cfg.DryRun {
 		if !cfg.ShowProgress {
-			log.Printf("[DRY RUN] Would backup %s to %s using method: %s", db.Name, dbBackupPath, cfg.Method)
+			logger.Info("[DRY RUN] Would backup %s to %s using method: %s", db.Name, dbBackupPath, cfg.Method)
 		}
 		progressTracker.CompleteItem(db.Size)
 		return
@@ -458,7 +463,7 @@ func processDatabase(ctx context.Context, db types.DatabaseInfo, backupPath stri
 
 	if err != nil {
 		if !cfg.ShowProgress {
-			log.Printf("Failed to process %s: %v", db.Name, err)
+			logger.Error("Failed to process %s: %v", db.Name, err)
 		}
 		errorsMu.Lock()
 		errors[db.Name] = err
@@ -472,7 +477,7 @@ func processDatabase(ctx context.Context, db types.DatabaseInfo, backupPath stri
 		err = verify.VerifyBackup(db, dbBackupPath, progressTracker)
 		if err != nil {
 			if !cfg.ShowProgress {
-				log.Printf("Verification failed for %s: %v", db.Name, err)
+				logger.Error("Verification failed for %s: %v", db.Name, err)
 			}
 			errorsMu.Lock()
 			errors[db.Name] = fmt.Errorf("verification failed: %v", err)
@@ -481,13 +486,37 @@ func processDatabase(ctx context.Context, db types.DatabaseInfo, backupPath stri
 			return
 		} else {
 			if !cfg.ShowProgress {
-				log.Printf("Verification passed for %s", db.Name)
+				logger.Info("Verification passed for %s", db.Name)
 			}
 		}
 	}
 
 	progressTracker.CompleteItem(db.Size)
 	if !cfg.ShowProgress {
-		log.Printf("Successfully processed %s", db.Name)
+		logger.Info("Successfully processed %s", db.Name)
 	}
+}
+
+// initLogger initializes the logger with configuration settings
+func initLogger(cfg *types.Config) {
+	// Set log level
+	logLevel := logger.INFO
+	switch strings.ToLower(cfg.LogLevel) {
+	case "debug":
+		logLevel = logger.DEBUG
+	case "info":
+		logLevel = logger.INFO
+	case "warning", "warn":
+		logLevel = logger.WARNING
+	case "error":
+		logLevel = logger.ERROR
+	default:
+		logLevel = logger.INFO
+	}
+
+	logger.SetLevel(logLevel)
+	logger.SetColorOutput(cfg.ColorLog)
+
+	// Log the logger initialization at debug level
+	logger.Debug("Logger initialized: level=%s, color=%t", cfg.LogLevel, cfg.ColorLog)
 }
