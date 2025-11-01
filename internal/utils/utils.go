@@ -148,7 +148,7 @@ func BytesEqual(a, b []byte) bool {
 	return true
 }
 
-// ReplaceDateVars 替换 $(date +%Y%m%d_%H%M%S) 为当前时间戳
+// ReplaceDateVars replaces $(date +%Y%m%d_%H%M%S) with current timestamp
 func ReplaceDateVars(s string) string {
 	pattern := regexp.MustCompile(`\$\(\s*date \+%Y%m%d_%H%M%S\s*\)`)
 	return pattern.ReplaceAllStringFunc(s, func(_ string) string {

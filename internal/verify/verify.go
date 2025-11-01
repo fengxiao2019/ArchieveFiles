@@ -104,7 +104,7 @@ func verifyRocksDB(sourcePath, backupPath string) error {
 		log.Printf("Warning: SST file count mismatch (source: %d, backup: %d)", sourceSSTCount, backupSSTCount)
 	}
 
-	log.Printf("✓ RocksDB verification passed: %d SST files, critical files present", backupSSTCount)
+	log.Printf("RocksDB verification passed: %d SST files, critical files present", backupSSTCount)
 	return nil
 }
 
@@ -132,7 +132,7 @@ func verifyManifestFiles(sourcePath, backupPath string) error {
 	}
 
 	// At least one MANIFEST file should exist in backup
-	log.Printf("✓ MANIFEST files present (source: %d, backup: %d)", len(sourceManifests), len(backupManifests))
+	log.Printf("MANIFEST files present (source: %d, backup: %d)", len(sourceManifests), len(backupManifests))
 	return nil
 }
 
@@ -179,7 +179,7 @@ func verifySQLite(sourcePath, backupPath string) error {
 		return fmt.Errorf("backup integrity check failed: %v", err)
 	}
 
-	log.Printf("✓ SQLite verification passed: integrity check OK, size %s",
+	log.Printf("SQLite verification passed: integrity check OK, size %s",
 		utils.FormatBytes(backupInfo.Size()))
 	return nil
 }
@@ -246,10 +246,10 @@ func verifyFile(sourcePath, backupPath string) error {
 			return fmt.Errorf("file checksum mismatch")
 		}
 
-		log.Printf("✓ File verification passed: size %s, checksum %s",
+		log.Printf("File verification passed: size %s, checksum %s",
 			utils.FormatBytes(sourceInfo.Size()), sourceHash[:16])
 	} else {
-		log.Printf("✓ File verification passed: size %s (checksum skipped for large file)",
+		log.Printf("File verification passed: size %s (checksum skipped for large file)",
 			utils.FormatBytes(sourceInfo.Size()))
 	}
 

@@ -101,7 +101,7 @@ func createRocksDB(dbPath string) {
 		}
 	}
 
-	fmt.Printf("✅ RocksDB created successfully with %d records\n", len(testData))
+	fmt.Printf("RocksDB created successfully with %d records\n", len(testData))
 }
 
 func createSQLiteDB(dbPath string) {
@@ -208,6 +208,6 @@ func createSQLiteDB(dbPath string) {
 		}
 	}
 
-	fmt.Printf("✅ SQLite database created successfully with %d users, %d products, and %d orders\n",
+	fmt.Printf("SQLite database created successfully with %d users, %d products, and %d orders\n",
 		len(users), len(products), len(orders))
 }

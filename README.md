@@ -175,21 +175,21 @@ MIT License
 
 ## RocksDB Backup & Restore (BackupEngine)
 
-### 备份（BackupEngine 格式）
+### Backup (BackupEngine Format)
 
 ```
 go run . -method=backup -source=testdata/dir1/app.db -backup=backup_engine_dir -remove-backup=false
 ```
 
-### 还原为原始结构（restore 子命令）
+### Restore to Original Structure (restore subcommand)
 
 ```
 go run . restore -backup=backup_engine_dir/app.db/app.db -restore=test_restore/app.db
 ```
 
-- `-backup`：BackupEngine 格式的备份目录（包含 meta、private、shared_checksum 等）
-- `-restore`：还原为原始 RocksDB 结构的目标目录
+- `-backup`: BackupEngine format backup directory (contains meta, private, shared_checksum, etc.)
+- `-restore`: Target directory to restore as original RocksDB structure
 
-还原后，`test_restore/app.db` 可直接用 RocksDB 打开。
+After restoration, `test_restore/app.db` can be opened directly with RocksDB.
 
---- 
+---

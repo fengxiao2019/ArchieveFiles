@@ -121,7 +121,7 @@ func safeBackupUsingCheckpoint(sourceDBPath, targetDBPath string, progressTracke
 		return fmt.Errorf("checkpoint creation failed for locked RocksDB: %v", err)
 	}
 
-	log.Printf("✅ Successfully created checkpoint backup of locked RocksDB")
+	log.Printf("Successfully created checkpoint backup of locked RocksDB")
 	return nil
 }
 
@@ -136,7 +136,7 @@ func safeBackupUsingBackupEngine(sourceDBPath, targetDBPath string, progressTrac
 		return fmt.Errorf("backup engine failed for locked RocksDB: %v", err)
 	}
 
-	log.Printf("✅ Successfully created backup engine backup of locked RocksDB")
+	log.Printf("Successfully created backup engine backup of locked RocksDB")
 	return nil
 }
 
@@ -158,6 +158,6 @@ func safeBackupLockedSQLite(sourceDBPath, targetPath string, progressTracker *pr
 		return fmt.Errorf("safe SQLite backup failed: %v", err)
 	}
 
-	log.Printf("✅ Successfully created safe backup of locked SQLite")
+	log.Printf("Successfully created safe backup of locked SQLite")
 	return nil
 }

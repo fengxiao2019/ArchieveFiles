@@ -11,51 +11,51 @@ import (
 	"github.com/linxGnu/grocksdb"
 )
 
-// LockRocksDB 锁定一个 RocksDB 数据库，用于测试目的
+// LockRocksDB locks a RocksDB database for testing purposes
 func LockRocksDB(dbPath string, duration time.Duration) error {
-	log.Printf("正在锁定 RocksDB 数据库: %s", dbPath)
+	log.Printf("Locking RocksDB database: %s", dbPath)
 
-	// 打开数据库（这会创建锁文件）
+	// Open database (this creates the lock file)
 	opts := grocksdb.NewDefaultOptions()
 	opts.SetCreateIfMissing(false)
 	defer opts.Destroy()
 
 	db, err := grocksdb.OpenDb(opts, dbPath)
 	if err != nil {
-		return fmt.Errorf("无法打开数据库进行锁定: %v", err)
+		return fmt.Errorf("failed to open database for locking: %v", err)
 	}
 	defer db.Close()
 
-	log.Printf("✅ 数据库已锁定: %s", dbPath)
-	log.Printf("锁定时间: %v", duration)
+	log.Printf("Database locked: %s", dbPath)
+	log.Printf("Lock duration: %v", duration)
 
-	// 设置信号处理，允许优雅退出
+	// Set up signal handling for graceful exit
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// 如果指定了持续时间，使用定时器
+	// If duration is specified, use a timer
 	if duration > 0 {
 		timer := time.NewTimer(duration)
 		defer timer.Stop()
 
 		select {
 		case <-timer.C:
-			log.Printf("锁定时间到期，释放锁定: %s", dbPath)
+			log.Printf("Lock duration expired, releasing lock: %s", dbPath)
 		case sig := <-sigChan:
-			log.Printf("收到信号 %v，释放锁定: %s", sig, dbPath)
+			log.Printf("Received signal %v, releasing lock: %s", sig, dbPath)
 		}
 	} else {
-		// 如果没有指定持续时间，等待信号
-		log.Printf("数据库已锁定，按 Ctrl+C 释放锁定...")
+		// If no duration specified, wait for signal
+		log.Printf("Database locked, press Ctrl+C to release lock...")
 		sig := <-sigChan
-		log.Printf("收到信号 %v，释放锁定: %s", sig, dbPath)
+		log.Printf("Received signal %v, releasing lock: %s", sig, dbPath)
 	}
 
-	log.Printf("✅ 数据库锁定已释放: %s", dbPath)
+	log.Printf("Database lock released: %s", dbPath)
 	return nil
 }
 
-// IsRocksDBLocked 检查 RocksDB 是否被锁定
+// IsRocksDBLocked checks if a RocksDB database is locked
 func IsRocksDBLocked(dbPath string) bool {
 	opts := grocksdb.NewDefaultOptions()
 	opts.SetCreateIfMissing(false)
@@ -63,11 +63,11 @@ func IsRocksDBLocked(dbPath string) bool {
 
 	db, err := grocksdb.OpenDb(opts, dbPath)
 	if err != nil {
-		// 如果无法打开，可能是被锁定了
+		// If unable to open, it may be locked
 		return true
 	}
 	defer db.Close()
 
-	// 如果能成功打开，说明没有被锁定
+	// If successfully opened, it's not locked
 	return false
 }

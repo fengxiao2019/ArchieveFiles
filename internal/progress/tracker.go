@@ -175,7 +175,7 @@ func (p *ProgressTracker) Finish() {
 	defer p.mu.Unlock()
 
 	elapsed := time.Since(p.startTime)
-	fmt.Printf("\n✓ Completed %d item(s) in %s (%s total)\n",
+	fmt.Printf("\nCompleted %d item(s) in %s (%s total)\n",
 		p.totalItems,
 		utils.FormatDuration(elapsed),
 		utils.FormatBytes(p.totalSize))

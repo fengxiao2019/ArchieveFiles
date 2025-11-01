@@ -30,15 +30,15 @@ func main() {
 	// Handle lock subcommand
 	if len(os.Args) > 1 && os.Args[1] == "lock" {
 		lockCmd := flag.NewFlagSet("lock", flag.ExitOnError)
-		dbPath := lockCmd.String("db", "", "RocksDB 数据库路径")
-		duration := lockCmd.String("duration", "", "锁定持续时间 (例如: 30s, 5m, 1h)")
+		dbPath := lockCmd.String("db", "", "RocksDB database path")
+		duration := lockCmd.String("duration", "", "Lock duration (e.g., 30s, 5m, 1h)")
 		lockCmd.Parse(os.Args[2:])
 
 		if *dbPath == "" {
-			fmt.Println("用法: archiveFiles lock -db=数据库路径 [-duration=持续时间]")
-			fmt.Println("示例:")
+			fmt.Println("Usage: archiveFiles lock -db=database_path [-duration=duration]")
+			fmt.Println("Examples:")
 			fmt.Println("  archiveFiles lock -db=testdata/dir1/app.db -duration=30s")
-			fmt.Println("  archiveFiles lock -db=testdata/dir1/app.db  # 无限期锁定，直到按 Ctrl+C")
+			fmt.Println("  archiveFiles lock -db=testdata/dir1/app.db  # Lock indefinitely until Ctrl+C")
 			os.Exit(1)
 		}
 
@@ -47,22 +47,22 @@ func main() {
 			var err error
 			lockDuration, err = time.ParseDuration(*duration)
 			if err != nil {
-				fmt.Printf("❌ 无效的持续时间格式: %v\n", err)
-				fmt.Println("支持的格式: 30s, 5m, 1h, 等")
+				fmt.Printf("Invalid duration format: %v\n", err)
+				fmt.Println("Supported formats: 30s, 5m, 1h, etc.")
 				os.Exit(1)
 			}
 		}
 
-		fmt.Printf("锁定 RocksDB 数据库: %s\n", *dbPath)
+		fmt.Printf("Locking RocksDB database: %s\n", *dbPath)
 		if lockDuration > 0 {
-			fmt.Printf("锁定持续时间: %v\n", lockDuration)
+			fmt.Printf("Lock duration: %v\n", lockDuration)
 		} else {
-			fmt.Println("无限期锁定，按 Ctrl+C 释放")
+			fmt.Println("Lock indefinitely, press Ctrl+C to release")
 		}
 
 		err := utils.LockRocksDB(*dbPath, lockDuration)
 		if err != nil {
-			fmt.Printf("❌ 锁定失败: %v\n", err)
+			fmt.Printf("Lock failed: %v\n", err)
 			os.Exit(1)
 		}
 		os.Exit(0)
@@ -71,22 +71,22 @@ func main() {
 	// Handle restore subcommand
 	if len(os.Args) > 1 && os.Args[1] == "restore" {
 		restoreCmd := flag.NewFlagSet("restore", flag.ExitOnError)
-		backupDir := restoreCmd.String("backup", "", "BackupEngine 格式的备份目录")
-		restoreDir := restoreCmd.String("restore", "", "还原为原始 RocksDB 结构的目标目录")
+		backupDir := restoreCmd.String("backup", "", "BackupEngine format backup directory")
+		restoreDir := restoreCmd.String("restore", "", "Target directory to restore as original RocksDB structure")
 		restoreCmd.Parse(os.Args[2:])
 
 		if *backupDir == "" || *restoreDir == "" {
-			fmt.Println("用法: archiveFiles restore -backup=备份目录 -restore=还原目录")
+			fmt.Println("Usage: archiveFiles restore -backup=backup_directory -restore=restore_directory")
 			os.Exit(1)
 		}
 
 		fmt.Printf("Restoring backup from %s to %s...\n", *backupDir, *restoreDir)
 		err := restore.RestoreBackupToPlain(*backupDir, *restoreDir)
 		if err != nil {
-			fmt.Printf("❌ Restore failed: %v\n", err)
+			fmt.Printf("Restore failed: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("✅ Restore to plain RocksDB directory successful: %s\n", *restoreDir)
+		fmt.Printf("Restore to plain RocksDB directory successful: %s\n", *restoreDir)
 		os.Exit(0)
 	}
 
@@ -103,16 +103,16 @@ func main() {
 
 	go func() {
 		sig := <-sigChan
-		log.Printf("\n⚠️  Received signal %v, initiating graceful shutdown...", sig)
+		log.Printf("\nReceived signal %v, initiating graceful shutdown...", sig)
 		cancel()
 	}()
 
 	// Log operational mode
 	if cfg.DryRun {
-		log.Printf("🔍 DRY RUN MODE: No actual changes will be made")
+		log.Printf("DRY RUN MODE: No actual changes will be made")
 	}
 	if cfg.Strict {
-		log.Printf("⚠️  STRICT MODE: Will fail immediately on any error")
+		log.Printf("STRICT MODE: Will fail immediately on any error")
 	}
 
 	log.Printf("Starting database archival process...")
@@ -198,7 +198,7 @@ func main() {
 
 	// Check if context was cancelled
 	if ctx.Err() != nil {
-		log.Printf("⚠️  Backup was cancelled: %v", ctx.Err())
+		log.Printf("Backup was cancelled: %v", ctx.Err())
 		log.Printf("Partial backup may exist at: %s", backupPath)
 		os.Exit(130) // Exit code 130 for Ctrl+C
 	}
@@ -391,7 +391,7 @@ func processDatabasesConcurrently(ctx context.Context, databases []types.Databas
 
 	// Report errors if any
 	if len(errors) > 0 {
-		log.Printf("⚠️  %d database(s) failed to backup:", len(errors))
+		log.Printf("%d database(s) failed to backup:", len(errors))
 		for name, err := range errors {
 			log.Printf("  - %s: %v", name, err)
 		}
@@ -472,7 +472,7 @@ func processDatabase(ctx context.Context, db types.DatabaseInfo, backupPath stri
 		err = verify.VerifyBackup(db, dbBackupPath, progressTracker)
 		if err != nil {
 			if !cfg.ShowProgress {
-				log.Printf("❌ Verification failed for %s: %v", db.Name, err)
+				log.Printf("Verification failed for %s: %v", db.Name, err)
 			}
 			errorsMu.Lock()
 			errors[db.Name] = fmt.Errorf("verification failed: %v", err)
@@ -481,7 +481,7 @@ func processDatabase(ctx context.Context, db types.DatabaseInfo, backupPath stri
 			return
 		} else {
 			if !cfg.ShowProgress {
-				log.Printf("✓ Verification passed for %s", db.Name)
+				log.Printf("Verification passed for %s", db.Name)
 			}
 		}
 	}

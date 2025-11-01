@@ -73,7 +73,7 @@ func BackupRocksDB(sourceDBPath, targetDBPath string, progressTracker *progress.
 	// Update progress with backup size
 	progressTracker.CompleteItem(int64(latestBackup.Size))
 
-	log.Printf("✅ Successfully created backup ID %d: %d bytes, %d files",
+	log.Printf("Successfully created backup ID %d: %d bytes, %d files",
 		latestBackup.ID, latestBackup.Size, latestBackup.NumFiles)
 	return nil
 }
@@ -222,7 +222,7 @@ func CopyDatabaseData(sourceDBPath, targetDBPath string, progressTracker *progre
 	progressTracker.UpdateRocksDBProgress(count, count)
 	progressTracker.CompleteItem(utils.CalculateSize(targetDBPath))
 
-	log.Printf("✅ Copied %d records from %s", count, sourceDBPath)
+	log.Printf("Copied %d records from %s", count, sourceDBPath)
 	return nil
 }
 

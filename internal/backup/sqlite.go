@@ -17,7 +17,7 @@ func SafeCopySQLiteDatabase(sourcePath, targetPath string) error {
 	// This is the fastest and most atomic method
 	err := vacuumIntoBackup(sourcePath, targetPath)
 	if err == nil {
-		log.Printf("✅ Successfully completed online SQLite backup using VACUUM INTO: %s -> %s", sourcePath, targetPath)
+		log.Printf("Successfully completed online SQLite backup using VACUUM INTO: %s -> %s", sourcePath, targetPath)
 		return nil
 	}
 
@@ -29,7 +29,7 @@ func SafeCopySQLiteDatabase(sourcePath, targetPath string) error {
 		return fmt.Errorf("failed to backup SQLite database: %v", err)
 	}
 
-	log.Printf("✅ Successfully completed online SQLite backup using table copy: %s -> %s", sourcePath, targetPath)
+	log.Printf("Successfully completed online SQLite backup using table copy: %s -> %s", sourcePath, targetPath)
 	return nil
 }
 

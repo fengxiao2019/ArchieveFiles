@@ -49,7 +49,7 @@ func main() {
 	createDir2(filepath.Join(basePath, "dir2"))
 	createDir3(filepath.Join(basePath, "dir3"))
 
-	fmt.Printf("✅ Mixed test databases created successfully in %s\n", basePath)
+	fmt.Printf("Mixed test databases created successfully in %s\n", basePath)
 }
 
 func createDir1(dir string) {
