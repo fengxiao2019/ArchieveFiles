@@ -149,7 +149,9 @@ func copyTableData(ctx context.Context, srcDB, dstDB *sql.DB, tableName string) 
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %v", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Get all rows from source table
 	rows, err := srcDB.QueryContext(ctx, fmt.Sprintf("SELECT * FROM \"%s\"", tableName))

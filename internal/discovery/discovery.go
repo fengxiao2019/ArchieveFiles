@@ -76,10 +76,7 @@ func DiscoverDatabases(config *types.Config, sourcePath string) ([]types.Databas
 			return nil
 		}
 
-		// Check include/exclude patterns (only for files, not directories like RocksDB)
-		if !info.IsDir() && !utils.ShouldIncludeFile(path, config.IncludePattern, config.ExcludePattern) {
-			return nil
-		}
+		// Include/exclude patterns have been removed - all discovered databases are included
 
 		// Create relative name for backup
 		relPath, err := filepath.Rel(sourcePath, path)

@@ -338,9 +338,8 @@ func TestDiscoverDatabases(t *testing.T) {
 		}
 
 		config := &types.Config{
-			SourcePaths:    []string{patternDir},
-			BatchMode:      true,
-			IncludePattern: "*.db",
+			SourcePaths: []string{patternDir},
+			BatchMode:   true,
 		}
 
 		databases, err := DiscoverDatabases(config, patternDir)
@@ -348,15 +347,8 @@ func TestDiscoverDatabases(t *testing.T) {
 			t.Errorf("DiscoverDatabases failed: %v", err)
 		}
 
-		if len(databases) != 2 {
-			t.Errorf("Expected 2 databases with include pattern, got %d", len(databases))
-		}
-
-		// Verify all found files have .db extension
-		for _, db := range databases {
-			if filepath.Ext(db.Name) != ".db" {
-				t.Errorf("Found file %s doesn't match include pattern", db.Name)
-			}
+		if len(databases) < 2 {
+			t.Errorf("Expected at least 2 databases, got %d", len(databases))
 		}
 	})
 
@@ -390,9 +382,8 @@ func TestDiscoverDatabases(t *testing.T) {
 		}
 
 		config := &types.Config{
-			SourcePaths:    []string{excludeDir},
-			BatchMode:      true,
-			ExcludePattern: "temp*",
+			SourcePaths: []string{excludeDir},
+			BatchMode:   true,
 		}
 
 		databases, err := DiscoverDatabases(config, excludeDir)
@@ -400,16 +391,9 @@ func TestDiscoverDatabases(t *testing.T) {
 			t.Errorf("DiscoverDatabases failed: %v", err)
 		}
 
-		// Should find 3 files (excluding temp.db)
-		if len(databases) != 3 {
-			t.Errorf("Expected 3 databases with exclude pattern, got %d", len(databases))
-		}
-
-		// Verify temp.db is not included
-		for _, db := range databases {
-			if db.Name == "temp.db" {
-				t.Errorf("Found excluded file temp.db")
-			}
+		// Should find all files (exclude pattern feature removed)
+		if len(databases) < 3 {
+			t.Errorf("Expected at least 3 databases, got %d", len(databases))
 		}
 	})
 

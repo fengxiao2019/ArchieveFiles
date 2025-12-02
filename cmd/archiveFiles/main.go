@@ -32,7 +32,10 @@ func main() {
 		lockCmd := flag.NewFlagSet("lock", flag.ExitOnError)
 		dbPath := lockCmd.String("db", "", "RocksDB database path")
 		duration := lockCmd.String("duration", "", "Lock duration (e.g., 30s, 5m, 1h)")
-		lockCmd.Parse(os.Args[2:])
+		if err := lockCmd.Parse(os.Args[2:]); err != nil {
+			fmt.Printf("Failed to parse flags: %v\n", err)
+			os.Exit(1)
+		}
 
 		if *dbPath == "" {
 			fmt.Println("Usage: archiveFiles lock -db=database_path [-duration=duration]")
@@ -73,7 +76,10 @@ func main() {
 		restoreCmd := flag.NewFlagSet("restore", flag.ExitOnError)
 		backupDir := restoreCmd.String("backup", "", "BackupEngine format backup directory")
 		restoreDir := restoreCmd.String("restore", "", "Target directory to restore as original RocksDB structure")
-		restoreCmd.Parse(os.Args[2:])
+		if err := restoreCmd.Parse(os.Args[2:]); err != nil {
+			fmt.Printf("Failed to parse flags: %v\n", err)
+			os.Exit(1)
+		}
 
 		if *backupDir == "" || *restoreDir == "" {
 			fmt.Println("Usage: archiveFiles restore -backup=backup_directory -restore=restore_directory")
@@ -114,17 +120,17 @@ func main() {
 	if cfg.DryRun {
 		logger.Warning("DRY RUN MODE: No actual changes will be made")
 	}
-	if cfg.Strict {
-		logger.Warning("STRICT MODE: Will fail immediately on any error")
-	}
 
 	logger.Info("Starting database archival process...")
 	logger.Info("Sources: %v", cfg.SourcePaths)
 	logger.Info("Method: %s", cfg.Method)
 	logger.Debug("Batch mode: %t", cfg.BatchMode)
 
+	// Auto-determine progress bar: disable for error log level, enable otherwise
+	showProgress := cfg.LogLevel != "error"
+
 	// Create progress tracker
-	progressTracker := progress.NewProgressTracker(cfg.ShowProgress)
+	progressTracker := progress.NewProgressTracker(showProgress)
 
 	// Discover databases from all source directories
 	allDatabases := []types.DatabaseInfo{}
@@ -133,10 +139,8 @@ func main() {
 
 		// Create a temporary config for each source
 		sourceConfig := &types.Config{
-			SourcePaths:    []string{sourcePath},
-			BatchMode:      cfg.BatchMode,
-			IncludePattern: cfg.IncludePattern,
-			ExcludePattern: cfg.ExcludePattern,
+			SourcePaths: []string{sourcePath},
+			BatchMode:   cfg.BatchMode,
 		}
 
 		databases, err := discovery.DiscoverDatabases(sourceConfig, sourcePath)
@@ -181,11 +185,8 @@ func main() {
 		}
 	}
 
-	// Determine number of workers
-	workers := cfg.Workers
-	if workers <= 0 {
-		workers = runtime.NumCPU()
-	}
+	// Auto-determine number of workers based on CPU cores
+	workers := runtime.NumCPU()
 
 	// Cap workers at reasonable maximum
 	if workers > len(allDatabases) {
@@ -207,7 +208,7 @@ func main() {
 	}
 
 	// Finish progress tracking
-	if cfg.ShowProgress {
+	if showProgress {
 		progressTracker.Finish()
 	}
 
@@ -222,11 +223,9 @@ func main() {
 
 		if cfg.DryRun {
 			logger.Info("[DRY RUN] Would create compressed archive: %s", archivePath)
-			if cfg.RemoveBackup {
-				logger.Info("[DRY RUN] Would remove backup directory: %s", backupPath)
-			}
+			logger.Info("[DRY RUN] Would remove backup directory: %s", backupPath)
 		} else {
-			if cfg.ShowProgress {
+			if showProgress {
 				logger.Info("Creating compressed archive...")
 			}
 
@@ -237,14 +236,12 @@ func main() {
 
 			logger.Info("Archive created successfully at: %s", archivePath)
 
-			// Remove original backup directory
-			if cfg.RemoveBackup {
-				err = os.RemoveAll(backupPath)
-				if err != nil {
-					logger.Warning("Failed to remove backup directory: %v", err)
-				} else {
-					logger.Info("Backup directory removed: %s", backupPath)
-				}
+			// Auto-remove original backup directory after compression
+			err = os.RemoveAll(backupPath)
+			if err != nil {
+				logger.Warning("Failed to remove backup directory: %v", err)
+			} else {
+				logger.Info("Backup directory removed: %s", backupPath)
 			}
 		}
 	}
@@ -256,13 +253,9 @@ func parseFlags() *types.Config {
 	var sourceFlag string
 	var sourcesFlag string
 	var configFile string
-	var generateConfig string
-	var initConfig bool
 
 	// Define all flags
 	flag.StringVar(&configFile, "config", "", "JSON configuration file path")
-	flag.StringVar(&generateConfig, "generate-config", "", "Generate a sample configuration file and exit")
-	flag.BoolVar(&initConfig, "init", false, "Generate default configuration file (archiveFiles.conf) in current directory")
 	flag.StringVar(&sourceFlag, "source", "", "Source database path or directory")
 	flag.StringVar(&sourcesFlag, "sources", "", "Multiple source paths, comma-separated")
 
@@ -272,42 +265,15 @@ func parseFlags() *types.Config {
 	flag.StringVar(&cfg.BackupPath, "backup", "", "Backup path (default: backup_timestamp)")
 	flag.StringVar(&cfg.ArchivePath, "archive", "", "Archive path (default: backup_path.tar.gz)")
 	flag.StringVar(&cfg.Method, "method", "checkpoint", "RocksDB backup method: checkpoint (fast, hard-links), backup (native backup engine), copy (record-by-record)")
-	flag.BoolVar(&cfg.Compress, "compress", true, "Compress archived files")
-	flag.BoolVar(&cfg.RemoveBackup, "remove-backup", true, "Remove backup directory after compression")
-	flag.BoolVar(&cfg.BatchMode, "batch", false, "Process directory containing multiple databases")
-	flag.StringVar(&cfg.IncludePattern, "include", "", "Include file patterns (comma-separated, e.g., '*.db,*.sqlite,*.log')")
-	flag.StringVar(&cfg.ExcludePattern, "exclude", "", "Exclude file patterns (comma-separated)")
-	flag.StringVar(&cfg.Filter, "filter", "", "Filter pattern for source paths (e.g., '*.db' or 'cache*')")
-	flag.StringVar(&cfg.CompressionFormat, "compression", "gzip", "Compression format: gzip, zstd, lz4")
-	flag.BoolVar(&cfg.ShowProgress, "progress", true, "Show progress bar during archival")
+	flag.BoolVar(&cfg.Compress, "compress", true, "Compress archived files (auto removes backup directory after compression)")
 	flag.BoolVar(&cfg.Verify, "verify", false, "Verify backup data integrity against source")
-	flag.IntVar(&cfg.Workers, "workers", 0, "Number of concurrent backup workers (0 = auto, based on CPU cores)")
-	flag.BoolVar(&cfg.Strict, "strict", false, "Strict mode: fail immediately on any error instead of continuing")
 	flag.BoolVar(&cfg.DryRun, "dry-run", false, "Dry run mode: simulate actions without actually executing them")
-	flag.StringVar(&cfg.LogLevel, "log-level", "info", "Log level: debug, info, warning, error")
+	flag.StringVar(&cfg.LogLevel, "log-level", "info", "Log level: debug, info, warning, error (error level disables progress bar)")
 	flag.BoolVar(&cfg.ColorLog, "color-log", true, "Enable colored log output")
 
 	// Parse flags
 	flag.Parse()
 
-	// Handle special commands
-	if initConfig {
-		err := config.GenerateDefaultConfigFile()
-		if err != nil {
-			logger.Fatal("Failed to generate default config: %v", err)
-		}
-		fmt.Println("Default configuration file 'archiveFiles.conf' created successfully!")
-		os.Exit(0)
-	}
-
-	if generateConfig != "" {
-		err := config.SaveConfigToJSON(cfg, generateConfig)
-		if err != nil {
-			logger.Fatal("Failed to generate config file: %v", err)
-		}
-		fmt.Printf("Configuration file generated: %s\n", generateConfig)
-		os.Exit(0)
-	}
 
 	// Load configuration from file if specified
 	var finalConfig *types.Config
@@ -394,16 +360,11 @@ func processDatabasesConcurrently(ctx context.Context, databases []types.Databas
 	// Wait for all workers to complete
 	wg.Wait()
 
-	// Report errors if any
+	// Report errors if any (but continue processing)
 	if len(errors) > 0 {
 		logger.Warning("%d database(s) failed to backup:", len(errors))
 		for name, err := range errors {
 			logger.Error("  - %s: %v", name, err)
-		}
-
-		// In strict mode, exit with error if any database failed
-		if cfg.Strict {
-			logger.Fatal("Backup failed in strict mode due to errors")
 		}
 	}
 }
@@ -420,8 +381,11 @@ func processDatabase(ctx context.Context, db types.DatabaseInfo, backupPath stri
 	default:
 	}
 
+	// Determine if progress bar is shown
+	showProgress := cfg.LogLevel != "error"
+
 	// Update progress
-	if cfg.ShowProgress {
+	if showProgress {
 		progressTracker.SetCurrentFile(db.Name)
 	} else {
 		if cfg.DryRun {
@@ -441,7 +405,7 @@ func processDatabase(ctx context.Context, db types.DatabaseInfo, backupPath stri
 
 	// In dry-run mode, simulate the operation
 	if cfg.DryRun {
-		if !cfg.ShowProgress {
+		if !showProgress {
 			logger.Info("[DRY RUN] Would backup %s to %s using method: %s", db.Name, dbBackupPath, cfg.Method)
 		}
 		progressTracker.CompleteItem(db.Size)
@@ -462,7 +426,7 @@ func processDatabase(ctx context.Context, db types.DatabaseInfo, backupPath stri
 	err := backup.SafeBackupDatabase(db, dbBackupPath, cfg.Method, progressTracker)
 
 	if err != nil {
-		if !cfg.ShowProgress {
+		if !showProgress {
 			logger.Error("Failed to process %s: %v", db.Name, err)
 		}
 		errorsMu.Lock()
@@ -476,7 +440,7 @@ func processDatabase(ctx context.Context, db types.DatabaseInfo, backupPath stri
 	if cfg.Verify {
 		err = verify.VerifyBackup(db, dbBackupPath, progressTracker)
 		if err != nil {
-			if !cfg.ShowProgress {
+			if !showProgress {
 				logger.Error("Verification failed for %s: %v", db.Name, err)
 			}
 			errorsMu.Lock()
@@ -485,36 +449,36 @@ func processDatabase(ctx context.Context, db types.DatabaseInfo, backupPath stri
 			progressTracker.CompleteItem(db.Size)
 			return
 		} else {
-			if !cfg.ShowProgress {
+			if !showProgress {
 				logger.Info("Verification passed for %s", db.Name)
 			}
 		}
 	}
 
 	progressTracker.CompleteItem(db.Size)
-	if !cfg.ShowProgress {
+	if !showProgress {
 		logger.Info("Successfully processed %s", db.Name)
 	}
 }
 
 // initLogger initializes the logger with configuration settings
 func initLogger(cfg *types.Config) {
-	// Set log level
-	logLevel := logger.INFO
+	// Determine log level from config
+	var level logger.LogLevel
 	switch strings.ToLower(cfg.LogLevel) {
 	case "debug":
-		logLevel = logger.DEBUG
+		level = logger.DEBUG
 	case "info":
-		logLevel = logger.INFO
+		level = logger.INFO
 	case "warning", "warn":
-		logLevel = logger.WARNING
+		level = logger.WARNING
 	case "error":
-		logLevel = logger.ERROR
+		level = logger.ERROR
 	default:
-		logLevel = logger.INFO
+		level = logger.INFO
 	}
 
-	logger.SetLevel(logLevel)
+	logger.SetLevel(level)
 	logger.SetColorOutput(cfg.ColorLog)
 
 	// Log the logger initialization at debug level

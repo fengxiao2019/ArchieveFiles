@@ -281,8 +281,8 @@ func TestSafeCopySQLiteDatabaseWithComplexSchema(t *testing.T) {
 
 	// Verify data
 	var productCount, orderCount int
-	targetDB.QueryRow("SELECT COUNT(*) FROM products").Scan(&productCount)
-	targetDB.QueryRow("SELECT COUNT(*) FROM orders").Scan(&orderCount)
+	_ = targetDB.QueryRow("SELECT COUNT(*) FROM products").Scan(&productCount)
+	_ = targetDB.QueryRow("SELECT COUNT(*) FROM orders").Scan(&orderCount)
 
 	if productCount != 3 {
 		t.Errorf("Expected 3 products, got %d", productCount)

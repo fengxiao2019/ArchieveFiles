@@ -45,24 +45,16 @@ type DatabaseInfo struct {
 
 // Config holds all configuration options
 type Config struct {
-	SourcePaths       []string `json:"source_paths"` // Support multiple source directories
-	BackupPath        string   `json:"backup_path"`
-	ArchivePath       string   `json:"archive_path"`
-	Method            string   `json:"method"` // backup, checkpoint, copy
-	Compress          bool     `json:"compress"`
-	RemoveBackup      bool     `json:"remove_backup"`
-	BatchMode         bool     `json:"batch_mode"`         // Process directory vs single database
-	IncludePattern    string   `json:"include_pattern"`    // File pattern to include
-	ExcludePattern    string   `json:"exclude_pattern"`    // File pattern to exclude
-	ShowProgress      bool     `json:"show_progress"`      // Show progress bar
-	Filter            string   `json:"filter"`             // Filter pattern for source paths
-	CompressionFormat string   `json:"compression_format"` // Compression format for archived files
-	Verify            bool     `json:"verify"`             // Verify backup data against source
-	Workers           int      `json:"workers"`            // Number of concurrent backup workers (0 = auto)
-	Strict            bool     `json:"strict"`             // Strict mode: fail on any error instead of continuing
-	DryRun            bool     `json:"dry_run"`            // Dry run mode: simulate actions without executing them
-	LogLevel          string   `json:"log_level"`          // Log level: debug, info, warning, error (default: info)
-	ColorLog          bool     `json:"color_log"`          // Enable colored log output (default: true)
+	SourcePaths []string `json:"source_paths"` // Support multiple source directories
+	BackupPath  string   `json:"backup_path"`
+	ArchivePath string   `json:"archive_path"`
+	Method      string   `json:"method"` // backup, checkpoint, copy
+	Compress    bool     `json:"compress"`
+	BatchMode   bool     `json:"batch_mode"` // Process directory vs single database
+	Verify      bool     `json:"verify"`     // Verify backup data against source
+	DryRun      bool     `json:"dry_run"`    // Dry run mode: simulate actions without executing them
+	LogLevel    string   `json:"log_level"`  // Log level: debug, info, warning, error (default: info)
+	ColorLog    bool     `json:"color_log"`  // Enable colored log output (default: true)
 }
 
 // DatabaseLockInfo contains information about database locks
@@ -128,20 +120,6 @@ func (c *Config) Validate() error {
 	}
 	if !contains(validMethods, c.Method) {
 		return fmt.Errorf("invalid backup method: %s (valid: %s)", c.Method, strings.Join(validMethods, ", "))
-	}
-
-	// Validate compression format
-	validFormats := []string{"gzip", "zstd", "lz4"}
-	if c.Compress && !contains(validFormats, c.CompressionFormat) {
-		return fmt.Errorf("invalid compression format: %s (valid: %s)", c.CompressionFormat, strings.Join(validFormats, ", "))
-	}
-
-	// Validate workers
-	if c.Workers < 0 {
-		return fmt.Errorf("workers must be >= 0 (got %d)", c.Workers)
-	}
-	if c.Workers > 256 {
-		return fmt.Errorf("workers must be <= 256 (got %d, unreasonably high)", c.Workers)
 	}
 
 	// Validate log level

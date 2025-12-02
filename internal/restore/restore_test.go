@@ -180,7 +180,9 @@ func TestRestoreBackupToPlain_EdgeCases(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get current directory: %v", err)
 		}
-		defer os.Chdir(originalDir)
+		defer func() {
+			_ = os.Chdir(originalDir)
+		}()
 
 		err = os.Chdir(tempDir)
 		if err != nil {
@@ -245,10 +247,10 @@ func BenchmarkRestoreBackupToPlain(b *testing.B) {
 		restoreDir := filepath.Join(tempDir, fmt.Sprintf("restore_%d", i))
 
 		// This will fail, but we're benchmarking the function call overhead
-		RestoreBackupToPlain(backupDir, restoreDir)
+		_ = RestoreBackupToPlain(backupDir, restoreDir)
 
 		// Clean up for next iteration
-		os.RemoveAll(restoreDir)
+		_ = os.RemoveAll(restoreDir)
 	}
 }
 
@@ -321,11 +323,7 @@ func TestRestoreBackupToPlain_MockBackup(t *testing.T) {
 // Test that verifies the function signature and basic behavior
 func TestRestoreBackupToPlain_FunctionSignature(t *testing.T) {
 	// This test ensures the function exists and has the expected signature
-	var fn func(string, string) error = RestoreBackupToPlain
-
-	if fn == nil {
-		t.Error("RestoreBackupToPlain function not found")
-	}
+	fn := RestoreBackupToPlain
 
 	// Test with obviously invalid inputs to verify error handling
 	err := fn("", "")

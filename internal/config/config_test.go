@@ -20,20 +20,17 @@ func TestGetDefaultConfig(t *testing.T) {
 	if !config.Compress {
 		t.Errorf("Expected default compress to be true, got %v", config.Compress)
 	}
-	if !config.RemoveBackup {
-		t.Errorf("Expected default remove_backup to be true, got %v", config.RemoveBackup)
-	}
 	if config.BatchMode {
 		t.Errorf("Expected default batch_mode to be false, got %v", config.BatchMode)
 	}
-	if !config.ShowProgress {
-		t.Errorf("Expected default show_progress to be true, got %v", config.ShowProgress)
-	}
-	if config.CompressionFormat != "gzip" {
-		t.Errorf("Expected default compression_format to be 'gzip', got '%s'", config.CompressionFormat)
-	}
 	if config.Verify {
 		t.Errorf("Expected default verify to be false, got %v", config.Verify)
+	}
+	if config.LogLevel != "info" {
+		t.Errorf("Expected default log_level to be 'info', got '%s'", config.LogLevel)
+	}
+	if !config.ColorLog {
+		t.Errorf("Expected default color_log to be true, got %v", config.ColorLog)
 	}
 }
 
@@ -48,19 +45,15 @@ func TestLoadConfigFromJSON(t *testing.T) {
 	t.Run("Successful loading", func(t *testing.T) {
 		configFile := filepath.Join(tempDir, "test_config.json")
 		testConfig := &types.Config{
-			SourcePaths:       []string{"/path1", "/path2"},
-			BackupPath:        "/backup",
-			ArchivePath:       "/archive.tar.gz",
-			Method:            "backup",
-			Compress:          true,
-			RemoveBackup:      false,
-			BatchMode:         true,
-			IncludePattern:    "*.db",
-			ExcludePattern:    "*.tmp",
-			ShowProgress:      false,
-			Filter:            "*.sqlite",
-			CompressionFormat: "zstd",
-			Verify:            true,
+			SourcePaths: []string{"/path1", "/path2"},
+			BackupPath:  "/backup",
+			ArchivePath: "/archive.tar.gz",
+			Method:      "backup",
+			Compress:    true,
+			BatchMode:   true,
+			Verify:      true,
+			LogLevel:    "debug",
+			ColorLog:    false,
 		}
 
 		// Save test config
@@ -132,15 +125,14 @@ func TestSaveConfigToJSON(t *testing.T) {
 	t.Run("Successful saving", func(t *testing.T) {
 		configFile := filepath.Join(tempDir, "save_test.json")
 		testConfig := &types.Config{
-			SourcePaths:    []string{"/test/path"},
-			BackupPath:     "/test/backup",
-			Method:         "checkpoint",
-			Compress:       true,
-			ShowProgress:   true,
-			RemoveBackup:   false,
-			BatchMode:      false,
-			IncludePattern: "*.db,*.sqlite",
-			ExcludePattern: "*.tmp",
+			SourcePaths: []string{"/test/path"},
+			BackupPath:  "/test/backup",
+			Method:      "checkpoint",
+			Compress:    true,
+			BatchMode:   false,
+			Verify:      false,
+			LogLevel:    "info",
+			ColorLog:    true,
 		}
 
 		err := SaveConfigToJSON(testConfig, configFile)
@@ -179,28 +171,23 @@ func TestSaveConfigToJSON(t *testing.T) {
 
 func TestMergeConfigs(t *testing.T) {
 	jsonConfig := &types.Config{
-		SourcePaths:       []string{"/json/path1", "/json/path2"},
-		BackupPath:        "/json/backup",
-		ArchivePath:       "/json/archive.tar.gz",
-		Method:            "backup",
-		Compress:          false,
-		RemoveBackup:      false,
-		BatchMode:         true,
-		IncludePattern:    "*.json",
-		ExcludePattern:    "*.temp",
-		ShowProgress:      false,
-		Filter:            "json*",
-		CompressionFormat: "zstd",
-		Verify:            true,
+		SourcePaths: []string{"/json/path1", "/json/path2"},
+		BackupPath:  "/json/backup",
+		ArchivePath: "/json/archive.tar.gz",
+		Method:      "backup",
+		Compress:    false,
+		BatchMode:   true,
+		Verify:      true,
+		DryRun:      false,
+		LogLevel:    "debug",
+		ColorLog:    false,
 	}
 
 	flagConfig := &types.Config{
-		BackupPath:        "/flag/backup", // Should override JSON
-		Method:            "checkpoint",   // Should override JSON
-		Compress:          true,           // Should override JSON
-		IncludePattern:    "*.flag",       // Should override JSON
-		ShowProgress:      true,           // Should override JSON
-		CompressionFormat: "gzip",         // Should override JSON
+		BackupPath: "/flag/backup", // Should override JSON
+		Method:     "checkpoint",   // Should override JSON
+		Compress:   true,           // Should override JSON
+		Verify:     false,          // Should override JSON
 		// Other fields should remain from JSON config
 	}
 
@@ -216,11 +203,8 @@ func TestMergeConfigs(t *testing.T) {
 	if !merged.Compress {
 		t.Errorf("Compress not merged correctly: got %v, want true", merged.Compress)
 	}
-	if merged.IncludePattern != "*.flag" {
-		t.Errorf("IncludePattern not merged correctly: got %s, want *.flag", merged.IncludePattern)
-	}
-	if merged.CompressionFormat != "gzip" {
-		t.Errorf("CompressionFormat not merged correctly: got %s, want gzip", merged.CompressionFormat)
+	if merged.Verify != false {
+		t.Errorf("Verify not merged correctly: got %v, want false", merged.Verify)
 	}
 
 	// Test that JSON values are preserved when flags are empty
@@ -230,14 +214,8 @@ func TestMergeConfigs(t *testing.T) {
 	if merged.ArchivePath != "/json/archive.tar.gz" {
 		t.Errorf("ArchivePath not preserved from JSON: got %s, want /json/archive.tar.gz", merged.ArchivePath)
 	}
-	if merged.ExcludePattern != "*.temp" {
-		t.Errorf("ExcludePattern not preserved from JSON: got %s, want *.temp", merged.ExcludePattern)
-	}
-	if merged.Filter != "json*" {
-		t.Errorf("Filter not preserved from JSON: got %s, want json*", merged.Filter)
-	}
-	if merged.Verify != true {
-		t.Errorf("Verify not preserved from JSON: got %v, want true", merged.Verify)
+	if merged.BatchMode != true {
+		t.Errorf("BatchMode not preserved from JSON: got %v, want true", merged.BatchMode)
 	}
 }
 
@@ -253,8 +231,10 @@ func TestFindDefaultConfig(t *testing.T) {
 	t.Run("No config found", func(t *testing.T) {
 		// Change to temp directory
 		originalDir, _ := os.Getwd()
-		defer os.Chdir(originalDir)
-		os.Chdir(tempDir)
+		defer func() {
+			_ = os.Chdir(originalDir)
+		}()
+		_ = os.Chdir(tempDir)
 
 		configPath := FindDefaultConfig()
 		if configPath != "" {
@@ -266,8 +246,10 @@ func TestFindDefaultConfig(t *testing.T) {
 	t.Run("Config found", func(t *testing.T) {
 		// Change to temp directory
 		originalDir, _ := os.Getwd()
-		defer os.Chdir(originalDir)
-		os.Chdir(tempDir)
+		defer func() {
+			_ = os.Chdir(originalDir)
+		}()
+		_ = os.Chdir(tempDir)
 
 		// Create a valid config file
 		configFile := filepath.Join(tempDir, "archiveFiles.conf")
@@ -288,8 +270,10 @@ func TestFindDefaultConfig(t *testing.T) {
 	t.Run("Invalid config ignored", func(t *testing.T) {
 		// Change to temp directory
 		originalDir, _ := os.Getwd()
-		defer os.Chdir(originalDir)
-		os.Chdir(tempDir)
+		defer func() {
+			_ = os.Chdir(originalDir)
+		}()
+		_ = os.Chdir(tempDir)
 
 		// Remove any existing config
 		os.Remove(filepath.Join(tempDir, "archiveFiles.conf"))
@@ -308,74 +292,20 @@ func TestFindDefaultConfig(t *testing.T) {
 	})
 }
 
-func TestGenerateDefaultConfigFile(t *testing.T) {
-	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "config_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp directory: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Change to temp directory
-	originalDir, _ := os.Getwd()
-	defer os.Chdir(originalDir)
-	os.Chdir(tempDir)
-
-	// Test successful generation
-	t.Run("Successful generation", func(t *testing.T) {
-		err := GenerateDefaultConfigFile()
-		if err != nil {
-			t.Errorf("GenerateDefaultConfigFile failed: %v", err)
-		}
-
-		// Verify file was created
-		configFile := "archiveFiles.conf"
-		if _, err := os.Stat(configFile); os.IsNotExist(err) {
-			t.Error("Default config file was not created")
-		}
-
-		// Verify content
-		loadedConfig, err := LoadConfigFromJSON(configFile)
-		if err != nil {
-			t.Errorf("Failed to load generated config: %v", err)
-		}
-
-		if loadedConfig.Method != "checkpoint" {
-			t.Errorf("Generated config method incorrect: got %s, want checkpoint", loadedConfig.Method)
-		}
-		if !loadedConfig.Compress {
-			t.Errorf("Generated config compress incorrect: got %v, want true", loadedConfig.Compress)
-		}
-		if !loadedConfig.BatchMode {
-			t.Errorf("Generated config batch_mode incorrect: got %v, want true", loadedConfig.BatchMode)
-		}
-	})
-
-	// Test file already exists
-	t.Run("File already exists", func(t *testing.T) {
-		err := GenerateDefaultConfigFile()
-		if err == nil {
-			t.Error("Expected error when config file already exists")
-		}
-	})
-}
 
 func TestConfigJSONMarshalling(t *testing.T) {
 	// Test that config can be properly marshalled and unmarshalled
 	originalConfig := &types.Config{
-		SourcePaths:       []string{"/path1", "/path2"},
-		BackupPath:        "/backup",
-		ArchivePath:       "/archive.tar.gz",
-		Method:            "checkpoint",
-		Compress:          true,
-		RemoveBackup:      false,
-		BatchMode:         true,
-		IncludePattern:    "*.db,*.sqlite",
-		ExcludePattern:    "*.tmp,*.cache",
-		ShowProgress:      true,
-		Filter:            "test*",
-		CompressionFormat: "zstd",
-		Verify:            true,
+		SourcePaths: []string{"/path1", "/path2"},
+		BackupPath:  "/backup",
+		ArchivePath: "/archive.tar.gz",
+		Method:      "checkpoint",
+		Compress:    true,
+		BatchMode:   true,
+		Verify:      true,
+		DryRun:      false,
+		LogLevel:    "info",
+		ColorLog:    true,
 	}
 
 	// Marshal to JSON
@@ -434,12 +364,12 @@ func TestConfigValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("Invalid compression format", func(t *testing.T) {
+	t.Run("Invalid log level", func(t *testing.T) {
 		config := GetDefaultConfig()
-		config.CompressionFormat = "invalid"
+		config.LogLevel = "invalid"
 		// The config package should allow any string, validation happens elsewhere
-		if config.CompressionFormat != "invalid" {
-			t.Error("Config should allow any compression format string")
+		if config.LogLevel != "invalid" {
+			t.Error("Config should allow any log level string")
 		}
 	})
 }

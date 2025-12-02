@@ -137,13 +137,11 @@ func TestConfig_Validate(t *testing.T) {
 
 	t.Run("Valid configuration", func(t *testing.T) {
 		cfg := &Config{
-			SourcePaths:       []string{sourceDir},
-			BackupPath:        filepath.Join(tempDir, "backup"),
-			ArchivePath:       filepath.Join(tempDir, "archive.tar.gz"),
-			Method:            constants.MethodCheckpoint,
-			Compress:          true,
-			CompressionFormat: "gzip",
-			Workers:           4,
+			SourcePaths: []string{sourceDir},
+			BackupPath:  filepath.Join(tempDir, "backup"),
+			ArchivePath: filepath.Join(tempDir, "archive.tar.gz"),
+			Method:      constants.MethodCheckpoint,
+			Compress:    true,
 		}
 
 		err := cfg.Validate()
@@ -212,68 +210,35 @@ func TestConfig_Validate(t *testing.T) {
 		}
 	})
 
-	t.Run("Invalid compression format", func(t *testing.T) {
-		cfg := &Config{
-			SourcePaths:       []string{sourceDir},
-			Method:            constants.MethodCheckpoint,
-			Compress:          true,
-			CompressionFormat: "invalid-format",
-		}
-
-		err := cfg.Validate()
-		if err == nil {
-			t.Error("Expected error for invalid compression format")
-		}
-		if !strings.Contains(err.Error(), "invalid compression format") {
-			t.Errorf("Expected error about invalid compression format, got: %v", err)
-		}
-	})
-
-	t.Run("Negative workers", func(t *testing.T) {
+	t.Run("Invalid log level", func(t *testing.T) {
 		cfg := &Config{
 			SourcePaths: []string{sourceDir},
 			Method:      constants.MethodCheckpoint,
-			Workers:     -1,
+			LogLevel:    "invalid-level",
 		}
 
 		err := cfg.Validate()
 		if err == nil {
-			t.Error("Expected error for negative workers")
+			t.Error("Expected error for invalid log level")
 		}
-		if !strings.Contains(err.Error(), "workers must be >= 0") {
-			t.Errorf("Expected error about workers >= 0, got: %v", err)
-		}
-	})
-
-	t.Run("Excessive workers", func(t *testing.T) {
-		cfg := &Config{
-			SourcePaths: []string{sourceDir},
-			Method:      constants.MethodCheckpoint,
-			Workers:     300,
-		}
-
-		err := cfg.Validate()
-		if err == nil {
-			t.Error("Expected error for excessive workers")
-		}
-		if !strings.Contains(err.Error(), "workers must be <= 256") {
-			t.Errorf("Expected error about workers <= 256, got: %v", err)
+		if !strings.Contains(err.Error(), "invalid log level") {
+			t.Errorf("Expected error about invalid log level, got: %v", err)
 		}
 	})
 
-	t.Run("Valid workers values", func(t *testing.T) {
-		validWorkerCounts := []int{0, 1, 4, 8, 16, 32, 64, 128, 256}
+	t.Run("Valid log levels", func(t *testing.T) {
+		validLevels := []string{"debug", "info", "warning", "error"}
 
-		for _, workers := range validWorkerCounts {
+		for _, level := range validLevels {
 			cfg := &Config{
 				SourcePaths: []string{sourceDir},
 				Method:      constants.MethodCheckpoint,
-				Workers:     workers,
+				LogLevel:    level,
 			}
 
 			err := cfg.Validate()
 			if err != nil {
-				t.Errorf("Expected workers=%d to be valid, got error: %v", workers, err)
+				t.Errorf("Expected log level=%s to be valid, got error: %v", level, err)
 			}
 		}
 	})

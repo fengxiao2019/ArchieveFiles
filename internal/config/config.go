@@ -44,16 +44,12 @@ func SaveConfigToJSON(config *types.Config, filename string) error {
 // GetDefaultConfig returns a configuration with sensible defaults
 func GetDefaultConfig() *types.Config {
 	return &types.Config{
-		Method:            constants.MethodCheckpoint,
-		Compress:          true,
-		RemoveBackup:      true,
-		BatchMode:         false,
-		ShowProgress:      constants.DefaultProgressEnabled,
-		CompressionFormat: constants.DefaultCompressionFormat,
-		Verify:            false,
-		Workers:           constants.DefaultWorkersAuto,
-		LogLevel:          "info",
-		ColorLog:          true,
+		Method:    constants.MethodCheckpoint,
+		Compress:  true,
+		BatchMode: false,
+		Verify:    false,
+		LogLevel:  "info",
+		ColorLog:  true,
 	}
 }
 
@@ -86,37 +82,13 @@ func MergeConfigs(jsonConfig *types.Config, flagConfig *types.Config) *types.Con
 	// Always override method (even if it's the default) since it's explicitly set
 	merged.Method = flagConfig.Method
 
-	if flagConfig.IncludePattern != "" {
-		merged.IncludePattern = flagConfig.IncludePattern
-	}
-	if flagConfig.ExcludePattern != "" {
-		merged.ExcludePattern = flagConfig.ExcludePattern
-	}
-	if flagConfig.Filter != "" {
-		merged.Filter = flagConfig.Filter
-	}
-	// Always override compression format (even if it's the default) since it's explicitly set
-	merged.CompressionFormat = flagConfig.CompressionFormat
-
 	// For boolean flags, we need special handling since false might be intentional
-	// Based on the test pattern, only certain fields should override JSON values
-	// We'll override the fields that are explicitly mentioned in the test's flagConfig
-
-	// From the test, these boolean fields are explicitly set and should override:
-	// - Compress: true (should override JSON false)
-	// - ShowProgress: true (should override JSON false)
-	// Other boolean fields (RemoveBackup, BatchMode, Verify) should preserve JSON values
-
-	// Only override if we detect this is a test-like scenario or explicitly set
-	if flagConfig.IncludePattern != "" || flagConfig.BackupPath != "" {
+	// Override if we detect flags were explicitly set
+	if flagConfig.BackupPath != "" || flagConfig.ArchivePath != "" {
 		// If other flag fields are set, assume boolean flags were also explicitly set
 		merged.Compress = flagConfig.Compress
-		merged.ShowProgress = flagConfig.ShowProgress
-	}
-
-	// Override Workers if explicitly set (0 is valid for auto)
-	if flagConfig.Workers >= 0 {
-		merged.Workers = flagConfig.Workers
+		merged.Verify = flagConfig.Verify
+		merged.DryRun = flagConfig.DryRun
 	}
 
 	return &merged
@@ -159,37 +131,3 @@ func FindDefaultConfig() string {
 	return "" // No default config found
 }
 
-// GenerateDefaultConfigFile creates a default config file in the current directory
-func GenerateDefaultConfigFile() error {
-	configPath := "archiveFiles.conf"
-
-	// Check if file already exists
-	if _, err := os.Stat(configPath); err == nil {
-		return fmt.Errorf("configuration file already exists: %s", configPath)
-	}
-
-	// Create a comprehensive default configuration
-	defaultConfig := &types.Config{
-		SourcePaths:       []string{"./data", "./databases"},
-		BackupPath:        "backup_$(date +%Y%m%d_%H%M%S)",
-		ArchivePath:       "archive_$(date +%Y%m%d_%H%M%S).tar.gz",
-		Method:            constants.MethodCheckpoint,
-		Compress:          true,
-		RemoveBackup:      true,
-		BatchMode:         true,
-		IncludePattern:    constants.DefaultIncludePattern,
-		ExcludePattern:    constants.DefaultExcludePattern,
-		ShowProgress:      constants.DefaultProgressEnabled,
-		Filter:            "",
-		CompressionFormat: constants.DefaultCompressionFormat,
-		Verify:            false,
-		Workers:           constants.DefaultWorkersAuto,
-	}
-
-	err := SaveConfigToJSON(defaultConfig, configPath)
-	if err != nil {
-		return fmt.Errorf("failed to create default config: %v", err)
-	}
-
-	return nil
-}

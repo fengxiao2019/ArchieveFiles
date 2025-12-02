@@ -33,7 +33,6 @@ func TestDryRunMode(t *testing.T) {
 		BackupPath:  backupDir,
 		Method:      constants.MethodCheckpoint,
 		DryRun:      true,
-		ShowProgress: false,
 	}
 
 	// In dry-run mode, backup directory should NOT be created
@@ -50,42 +49,6 @@ func TestDryRunMode(t *testing.T) {
 	}
 }
 
-func TestStrictMode(t *testing.T) {
-	tempDir := t.TempDir()
-
-	// Test strict mode configuration
-	cfg := &types.Config{
-		SourcePaths: []string{tempDir},
-		Method:      constants.MethodCheckpoint,
-		Strict:      true,
-	}
-
-	// Verify strict flag is set
-	if !cfg.Strict {
-		t.Error("Expected Strict to be true")
-	}
-}
-
-func TestDryRunAndStrictModeTogether(t *testing.T) {
-	tempDir := t.TempDir()
-
-	// Test both modes enabled together
-	cfg := &types.Config{
-		SourcePaths: []string{tempDir},
-		Method:      constants.MethodCheckpoint,
-		DryRun:      true,
-		Strict:      true,
-	}
-
-	// Verify both flags are set
-	if !cfg.DryRun {
-		t.Error("Expected DryRun to be true")
-	}
-	if !cfg.Strict {
-		t.Error("Expected Strict to be true")
-	}
-}
-
 func TestModeConfigPersistence(t *testing.T) {
 	tempDir := t.TempDir()
 	configFile := filepath.Join(tempDir, "test_config.json")
@@ -95,7 +58,7 @@ func TestModeConfigPersistence(t *testing.T) {
 		SourcePaths: []string{tempDir},
 		Method:      constants.MethodCheckpoint,
 		DryRun:      true,
-		Strict:      true,
+		Verify:      true,
 	}
 
 	// Save config
@@ -113,7 +76,7 @@ func TestModeConfigPersistence(t *testing.T) {
 	if !loadedCfg.DryRun {
 		t.Error("DryRun flag not persisted in config file")
 	}
-	if !loadedCfg.Strict {
-		t.Error("Strict flag not persisted in config file")
+	if !loadedCfg.Verify {
+		t.Error("Verify flag not persisted in config file")
 	}
 }

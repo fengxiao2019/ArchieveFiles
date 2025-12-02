@@ -130,65 +130,65 @@ install:
 .PHONY: example-backup
 example-backup: build generate-testdb
 	@echo "Example: Backup method"
-	./$(BINARY_NAME) -source $(TEST_DB_PATH) -backup ./testdata/backup-example -method backup
+	./$(BINARY_NAME) -source $(TEST_DB_PATH) -backup ./testdata/backup-example -method backup -compress=false
 
 .PHONY: example-checkpoint
 example-checkpoint: build generate-testdb
-	@echo "Example: Checkpoint method" 
-	./$(BINARY_NAME) -source $(TEST_DB_PATH) -backup ./testdata/checkpoint-example -method checkpoint
+	@echo "Example: Checkpoint method"
+	./$(BINARY_NAME) -source $(TEST_DB_PATH) -backup ./testdata/checkpoint-example -method checkpoint -compress=false
 
 .PHONY: example-copy
 example-copy: build generate-testdb
 	@echo "Example: Copy method"
-	./$(BINARY_NAME) -source $(TEST_DB_PATH) -backup ./testdata/copy-example -method copy
+	./$(BINARY_NAME) -source $(TEST_DB_PATH) -backup ./testdata/copy-example -method copy -compress=false
 
 .PHONY: example-compress
 example-compress: build generate-testdb
 	@echo "Example: Full workflow with compression"
-	./$(BINARY_NAME) -source $(TEST_DB_PATH) -backup ./testdata/compress-example -method copy -archive ./testdata/compressed.tar.gz -compress
+	./$(BINARY_NAME) -source $(TEST_DB_PATH) -backup ./testdata/compress-example -archive ./testdata/compressed.tar.gz
 
 .PHONY: example-batch
 example-batch: build generate-mixed-testdbs
 	@echo "Example: Batch processing multiple databases"
-	./$(BINARY_NAME) -sources="testdata/mixed_dbs/dir1,testdata/mixed_dbs/dir2,testdata/mixed_dbs/dir3" -backup=backup_batch -archive=batch_result.tar.gz -compress=true
+	./$(BINARY_NAME) -sources="testdata/mixed_dbs/dir1,testdata/mixed_dbs/dir2,testdata/mixed_dbs/dir3" -backup=backup_batch -archive=batch_result.tar.gz
 
 .PHONY: example-batch-filter
 example-batch-filter: build generate-mixed-testdbs
-	@echo "Example: Batch processing with filters"
-	./$(BINARY_NAME) -sources="testdata/mixed_dbs/dir1,testdata/mixed_dbs/dir2" -backup=backup_filtered -archive=filtered_result.tar.gz -compress=true
+	@echo "Example: Batch processing"
+	./$(BINARY_NAME) -sources="testdata/mixed_dbs/dir1,testdata/mixed_dbs/dir2" -backup=backup_filtered -archive=filtered_result.tar.gz
 
 .PHONY: example-sqlite-only
 example-sqlite-only: build generate-mixed-testdbs
-	@echo "Example: SQLite databases only"
-	./$(BINARY_NAME) -source="testdata/mixed_dbs/dir2" -backup=backup_sqlite -archive=sqlite_result.tar.gz -compress=true
+	@echo "Example: SQLite databases"
+	./$(BINARY_NAME) -source="testdata/mixed_dbs/dir2" -backup=backup_sqlite -archive=sqlite_result.tar.gz
 
 # New examples
 .PHONY: example-multi
 example-multi: build generate-mixed-testdbs
 	@echo "=== Multiple Source Directories Example ==="
-	./$(BINARY_NAME) -sources="testdata/mixed_dbs/dir1,testdata/mixed_dbs/dir2,testdata/mixed_dbs/dir3" -backup=backup_multi -archive=multi_sources.tar.gz -compress=true
+	./$(BINARY_NAME) -sources="testdata/mixed_dbs/dir1,testdata/mixed_dbs/dir2,testdata/mixed_dbs/dir3" -backup=backup_multi -archive=multi_sources.tar.gz
 	@echo "Multiple source directories archived to multi_sources.tar.gz"
 
 .PHONY: example-logs
 example-logs: build generate-mixed-testdbs
-	@echo "=== Log Files Only Example ==="
-	./$(BINARY_NAME) -source="testdata/mixed_dbs" -backup=backup_logs -archive=logs_only.tar.gz -compress=true
+	@echo "=== Log Files Example ==="
+	./$(BINARY_NAME) -source="testdata/mixed_dbs" -backup=backup_logs -archive=logs_only.tar.gz
 	@echo "Log files archived to logs_only.tar.gz"
 
 .PHONY: example-progress
 example-progress: build generate-mixed-testdbs
 	@echo "=== Progress Bar Example ==="
 	@echo "Running with progress bar (default):"
-	./$(BINARY_NAME) -sources="testdata/mixed_dbs/dir1,testdata/mixed_dbs/dir2" -archive="progress_demo.tar.gz" -progress=true
+	./$(BINARY_NAME) -sources="testdata/mixed_dbs/dir1,testdata/mixed_dbs/dir2" -archive="progress_demo.tar.gz"
 
 .PHONY: example-no-progress
 example-no-progress: build
-	@echo "=== No Progress Bar Example (for automation) ==="
+	@echo "=== Automation Mode (no progress bar) ==="
 	@mkdir -p testdata/dir3
-	@echo "Debug info from dir3" > testdata/dir3/debug.txt
-	@echo "Running without progress bar:"
-	./$(BINARY_NAME) -source="testdata/dir3" -archive="no_progress.tar.gz" -progress=false
-	@echo "All methods tested, archives created"
+	@echo "Test data" > testdata/dir3/test.log
+	@echo "Running in automation mode (error log level):"
+	./$(BINARY_NAME) -source="testdata/dir3" -archive="no_progress.tar.gz" -log-level=error
+	@echo "Archive created in automation mode"
 
 # View archive contents
 .PHONY: view-archive
@@ -244,9 +244,9 @@ help:
 	@echo "  help               - Show this help message"
 
 
-# Test with progress disabled (automation mode)
+# Test with automation mode (progress disabled via error log level)
 test-no-progress: build
-	./$(BINARY_NAME) -progress=false testdata/dir1 testdata/dir2 output
+	./$(BINARY_NAME) -log-level=error -source=testdata/dir1
 
 # Test different RocksDB methods
 test-checkpoint: build
@@ -290,7 +290,7 @@ test-verify:
 
 # Test verification with JSON config
 test-verify-config:
-	echo '{"source_paths":["testdata/dir1","testdata/dir2"],"archive_path":"verified-backup.tar.zst","method":"checkpoint","compression_format":"zstd","verify":true,"show_progress":false}' > verify-config.json
+	echo '{"source_paths":["testdata/dir1","testdata/dir2"],"archive_path":"verified-backup.tar.gz","method":"checkpoint","verify":true,"log_level":"error"}' > verify-config.json
 	./$(BINARY_NAME) -config=verify-config.json
 
 # Clean verification files
@@ -309,7 +309,7 @@ test-default-config: init-config
 # Test default config discovery
 test-config-discovery:
 	@echo "Creating test config in current directory..."
-	echo '{"source_paths":["testdata"],"archive_path":"discovery-test.tar.gz","method":"checkpoint","verify":false,"show_progress":false}' > archiveFiles.conf
+	echo '{"source_paths":["testdata"],"archive_path":"discovery-test.tar.gz","method":"checkpoint","verify":false,"log_level":"error"}' > archiveFiles.conf
 	@echo "Running without -config flag (should auto-discover)..."
 	./archiveFiles
 	@echo "Cleaning up..."
